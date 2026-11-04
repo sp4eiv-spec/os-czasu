@@ -1,0 +1,1012 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Oś czasu – trasy i pobyty</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#2f5bd3">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+:root{--bg:#f4f5f7;--card:#fff;--fg:#1b1f24;--mut:#5d6470;--line:#e1e4e9;--acc:#2f5bd3;
+--walk:#2e9e5b;--run:#e07a1f;--bike:#1f9fb4;--drive:#4a63d6;--stay:#6b7280;--gap:#b9bec6}
+@media (prefers-color-scheme:dark){:root{--bg:#101317;--card:#1a1e24;--fg:#e8ebef;--mut:#9aa3ae;--line:#2b313a;--acc:#7a9bff;--stay:#9aa0a8;--gap:#4a5059}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:900px;margin:0 auto;padding:12px 10px 70px}
+h1{font-size:20px;margin:2px 0}
+h2{font-size:16px;margin:4px 0 8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.grow{flex:1}
+button,.btn,select,input,textarea{font:inherit;color:inherit}
+button,.btn{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:8px 12px;cursor:pointer}
+button.pri,.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+button.sm{padding:4px 9px;font-size:13px}
+button:disabled{opacity:.45}
+select,input[type=number],input[type=text],textarea{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:7px 8px}
+input[type=file]{display:none}
+.note{font-size:13px;color:var(--mut)}
+.msg{font-size:13px;padding:8px 10px;border-radius:9px;background:color-mix(in srgb,var(--acc) 12%,transparent);margin:8px 0 0;display:none}
+.msg.on{display:block}.msg.err{background:color-mix(in srgb,#d33 16%,transparent)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
+.tile{border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.tile .k{color:var(--mut);font-size:12px}.tile .v{font-size:19px;font-weight:600;font-variant-numeric:tabular-nums}.tile .s{color:var(--mut);font-size:12px}
+#map{height:62vh;min-height:320px;border-radius:10px;border:1px solid var(--line)}
+.legend{display:flex;gap:4px 10px;flex-wrap:wrap;font-size:12px;color:var(--mut);margin-top:8px}
+.sw{display:inline-block;width:18px;height:5px;border-radius:3px;margin-right:4px;vertical-align:middle}
+.dot{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:4px;vertical-align:middle;border:2px solid #fff;box-shadow:0 0 0 1px #0004}
+.tl{list-style:none;margin:0;padding:0}
+.tl>li{display:grid;grid-template-columns:70px 6px 1fr;gap:9px;padding:9px 2px;border-bottom:1px solid var(--line);cursor:pointer}
+.tl>li:last-child{border-bottom:0}
+.tl>li.sel{background:color-mix(in srgb,var(--acc) 10%,transparent)}
+.tl .tm{font-variant-numeric:tabular-nums;color:var(--mut);font-size:13px;line-height:1.3}
+.tl .bar{border-radius:3px}
+.tl .ti{font-weight:600}
+.tl .de{color:var(--mut);font-size:13px;font-variant-numeric:tabular-nums}
+.tl .ad{font-size:14px}
+.tl .ev{font-size:13px;margin-top:2px}
+.tl .act{margin-top:6px;display:flex;gap:6px;flex-wrap:wrap}
+.dlg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:flex-end;justify-content:center;z-index:2000}
+.dlg.on{display:flex}
+.dlg .box{background:var(--card);border-radius:14px 14px 0 0;width:100%;max-width:600px;padding:16px;max-height:90vh;overflow:auto}
+.dlg label.f{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:7px 0}
+.dlg input[type=number]{width:100px}
+table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{border-bottom:1px solid var(--line);padding:5px 4px;text-align:right}
+th:first-child,td:first-child{text-align:left}
+.scroll{overflow-x:auto}
+.play{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}
+.play input[type=range]{flex:1;min-width:160px}
+.badge{display:inline-block;font-size:12px;padding:1px 7px;border-radius:9px;border:1px solid var(--line);color:var(--mut)}
+.help li{margin:5px 0}
+.leaflet-popup-content{font:13px/1.4 system-ui,sans-serif}
+.lbl{background:#fff;border:1px solid #555;border-radius:10px;padding:0 5px;font:600 11px system-ui;color:#222;white-space:nowrap}
+svg{display:block;width:100%;height:auto}
+.axis{font-size:24px;fill:var(--mut)}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin:10px 0}
+.cw{font-size:12px;color:var(--mut);text-align:center}
+.cd{min-height:58px;border:1px solid var(--line);border-radius:8px;padding:3px 4px;font-size:12px}
+.cd.has{cursor:pointer;background:color-mix(in srgb,var(--acc) 7%,transparent)}
+.cd.today{outline:2px solid var(--acc)}
+.cn{font-weight:600}.ck{font-variant-numeric:tabular-nums;color:var(--mut);font-size:11px}
+.cb{display:flex;height:4px;border-radius:2px;overflow:hidden;margin-top:3px}
+</style>
+</head>
+<body>
+<main>
+  <div class="row"><h1 class="grow">Oś czasu</h1><span id="store" class="note"></span></div>
+  <div class="card">
+    <div class="row">
+      <label class="btn pri" for="file">Importuj</label>
+      <input id="file" type="file" multiple accept=".gpx,.csv,.fit,.zip,.kml,.txt">
+      <button id="bDrv">Dysk Google</button>
+      <button id="bSum">Kalendarz</button>
+      <button id="bPlaces">Miejsca</button>
+      <button id="bSet">Ustawienia</button>
+      <button id="bBak">Kopia</button>
+      <button id="bHelp">Instrukcja</button>
+      <button id="bDrvSet" class="sm">⚙ Dysk</button>
+    </div>
+    <div id="drvInfo" class="note" style="margin-top:6px"></div>
+    <div id="msg" class="msg"></div>
+  </div>
+
+  <div id="dayBar" class="card" style="display:none">
+    <div class="row">
+      <button id="prev" aria-label="Poprzedni dzień">◀</button>
+      <select id="daySel" class="grow"></select>
+      <button id="next" aria-label="Następny dzień">▶</button>
+    </div>
+  </div>
+
+  <div id="view"></div>
+  <div id="sumView" style="display:none"></div>
+
+  <div id="empty" class="card">
+    <h2>Brak danych</h2>
+    <p class="note">Ślad nagrywa w tle GPS Logger (telefon) i zegarek Garmin. Tutaj importuje się pliki i analizuje dzień. Ustawienia nagrywania – przycisk „Instrukcja”.</p>
+  </div>
+</main>
+
+<!-- dialogi -->
+<div id="dlg" class="dlg" role="dialog" aria-modal="true"><div class="box" id="dlgBox"></div></div>
+<script>
+"use strict";
+/* ================= narzędzia ================= */
+const $=id=>document.getElementById(id);
+const pad=n=>String(n).padStart(2,"0");
+const fmtT=ms=>{const d=new Date(ms);return pad(d.getHours())+":"+pad(d.getMinutes());};
+const fmtTs=ms=>{const d=new Date(ms);return pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds());};
+const fmtDur=s=>{s=Math.round(s);const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;
+  return h?h+" h "+pad(m)+" min":(m?m+" min "+pad(x)+" s":x+" s");};
+const nf0=new Intl.NumberFormat("pl-PL",{maximumFractionDigits:0});
+const nf1=new Intl.NumberFormat("pl-PL",{maximumFractionDigits:1,minimumFractionDigits:1});
+const nf2=new Intl.NumberFormat("pl-PL",{maximumFractionDigits:2,minimumFractionDigits:2});
+const fmtKm=m=>(m>=10000?nf1.format(m/1000):nf2.format(m/1000))+" km";
+const fmtV=v=>(v==null||!isFinite(v))?"—":nf0.format(v)+" km/h";
+const dateKey=ms=>{const d=new Date(ms);return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());};
+const dayLabel=k=>{const [y,m,d]=k.split("-").map(Number);return new Date(y,m-1,d).toLocaleDateString("pl-PL",{weekday:"short",day:"numeric",month:"long",year:"numeric"});};
+const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const R2D=180/Math.PI, D2R=Math.PI/180;
+function hav(a,b,c,d){const R=6371008.8,dl=(c-a)*D2R,dn=(d-b)*D2R;const x=Math.sin(dl/2)**2+Math.cos(a*D2R)*Math.cos(c*D2R)*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.min(1,Math.sqrt(x)));}
+function bearing(a,b,c,d){const y=Math.sin((d-b)*D2R)*Math.cos(c*D2R),x=Math.cos(a*D2R)*Math.sin(c*D2R)-Math.sin(a*D2R)*Math.cos(c*D2R)*Math.cos((d-b)*D2R);return Math.atan2(y,x);}
+function wrapPi(a){while(a>Math.PI)a-=2*Math.PI;while(a<-Math.PI)a+=2*Math.PI;return a;}
+function median(a){if(!a.length)return null;const s=Float64Array.from(a).sort();return s.length%2?s[s.length>>1]:(s[s.length/2-1]+s[s.length/2])/2;}
+function msg(t,err){const m=$("msg");m.textContent=t||"";m.className="msg"+(t?" on":"")+(err?" err":"");}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function download(name,data,type){const b=data instanceof Blob?data:new Blob([data],{type:type||"text/plain"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=name;document.body.appendChild(a);a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},2000);}
+
+/* ================= ustawienia ================= */
+const DEF={acc:20,rad:50,stay:3,haltV:1.5,walk:7,run:14,min:60,
+  brake:11.27,accel:12.87,evMin:24.1,corner:3.9,high:130,interval:"auto"};
+let S=Object.assign({},DEF);
+try{const s=JSON.parse(localStorage.getItem("osczasu-set")||"null");if(s)Object.assign(S,s);}catch(e){}
+function saveSet(){try{localStorage.setItem("osczasu-set",JSON.stringify(S));}catch(e){}}
+
+/* skala kolorów prędkości (km/h) */
+const VBINS=[7,20,50,70,90,120,140];
+const VCOL=["#9aa0a6","#2f7ef7","#1fa34a","#f2c200","#f28c00","#e02020","#8b1a1a","#8e24aa"];
+const VLBL=["0–7","7–20","20–50","50–70","70–90","90–120","120–140","> 140"];
+const vbin=v=>{let i=0;while(i<VBINS.length&&v>=VBINS[i])i++;return i;};
+const CLS={stay:{n:"Pobyt",v:"--stay"},walk:{n:"Chód",v:"--walk"},run:{n:"Bieg",v:"--run"},bike:{n:"Rower",v:"--bike"},
+  drive:{n:"Jazda",v:"--drive"},halt:{n:"Zatrzymanie",v:"--stay"},gap:{n:"Brak danych",v:"--gap"}};
+const MOVING=["walk","run","bike","drive","halt"];
+const ccol=c=>getComputedStyle(document.documentElement).getPropertyValue(CLS[c].v).trim()||"#888";
+const EVC={brake:"#e01010",accel:"#ff8a00",corner:"#f5d000"};
+const EVN={brake:"Gwałtowne hamowanie",accel:"Gwałtowne przyspieszenie",corner:"Ostry zakręt"};
+
+/* ================= parsery ================= */
+const num=x=>{const v=typeof x==="string"?parseFloat(x.replace(",",".")):x;return(typeof v==="number"&&isFinite(v))?v:null;};
+function tms(x){if(x==null||x==="")return null;if(typeof x==="number")return x>1e12?x:x*1000;
+  const s=String(x).trim();if(/^\d{12,}$/.test(s))return +s;if(/^\d{9,11}(\.\d+)?$/.test(s))return Math.round(+s*1000);
+  const t=Date.parse(s);return isNaN(t)?null:t;}
+/* punkt: {t, lat, lon, sp(km/h|null), acc(m|null), hr|null, ele|null} */
+function parseGPX(txt){
+  const doc=new DOMParser().parseFromString(txt,"application/xml");
+  if(doc.getElementsByTagName("parsererror").length)throw new Error("niepoprawny GPX");
+  const creator=(doc.documentElement.getAttribute("creator")||"");
+  const watch=/garmin|connect|fenix|instinct|forerunner/i.test(creator);
+  const out=[];
+  const g=(e,n)=>{const x=e.getElementsByTagNameNS("*",n)[0];return x?x.textContent.trim():null;};
+  for(const e of doc.getElementsByTagNameNS("*","trkpt")){
+    const lat=num(e.getAttribute("lat")),lon=num(e.getAttribute("lon")),t=tms(g(e,"time"));
+    if(lat==null||lon==null||t==null)continue;
+    const src=(g(e,"src")||"").toLowerCase(); if(src&&src!=="gps")continue; /* odrzuć pozycje sieciowe */
+    const sp=num(g(e,"speed")),hd=num(g(e,"hdop")),ac=num(g(e,"accuracy"));
+    out.push({t,lat,lon,sp:sp!=null&&sp>=0?sp*3.6:null,acc:ac!=null?ac:(hd!=null?hd*5:null),hr:num(g(e,"hr")),ele:num(g(e,"ele"))});
+  }
+  return {pts:out,src:watch?"watch":"phone"};
+}
+function parseCSV(txt){
+  const lines=txt.split(/\r?\n/).filter(l=>l.trim());if(lines.length<2)return{pts:[],src:"phone"};
+  const h0=lines[0];const sep=(h0.match(/;/g)||[]).length>(h0.match(/,/g)||[]).length?";":(h0.includes("\t")?"\t":",");
+  const H=h0.split(sep).map(h=>h.trim().replace(/^"|"$/g,"").toLowerCase());
+  const ix=(...n)=>{for(const x of n){const i=H.indexOf(x);if(i>=0)return i;}return -1;};
+  const iTs=ix("timestamp_ms"),iT=ix("time","timestamp","date time","datetime","czas","date"),
+        iLa=ix("lat","latitude"),iLo=ix("lon","lng","longitude"),iSp=ix("speed","speed(m/s)"),iAc=ix("accuracy","accuracy(m)","acc"),
+        iPr=ix("provider"),iEl=ix("elevation","altitude","ele");
+  if((iT<0&&iTs<0)||iLa<0||iLo<0)throw new Error("CSV bez kolumn time/lat/lon");
+  const out=[];
+  for(let i=1;i<lines.length;i++){const c=lines[i].split(sep).map(x=>x.trim().replace(/^"|"$/g,""));
+    const t=iTs>=0&&c[iTs]?tms(c[iTs]):tms(c[iT]);const lat=num(c[iLa]),lon=num(c[iLo]);
+    if(t==null||lat==null||lon==null)continue;
+    if(iPr>=0&&c[iPr]&&c[iPr].toLowerCase()!=="gps")continue;
+    const sp=iSp>=0?num(c[iSp]):null;
+    out.push({t,lat,lon,sp:sp!=null&&sp>=0?sp*3.6:null,acc:iAc>=0?num(c[iAc]):null,hr:null,ele:iEl>=0?num(c[iEl]):null});}
+  return {pts:out,src:"phone"};
+}
+function parseKML(txt){
+  const doc=new DOMParser().parseFromString(txt,"application/xml");const out=[];
+  for(const tr of doc.getElementsByTagNameNS("*","Track")){
+    const w=[...tr.getElementsByTagNameNS("*","when")],c=[...tr.getElementsByTagNameNS("*","coord")];
+    for(let i=0;i<Math.min(w.length,c.length);i++){const t=tms(w[i].textContent),p=c[i].textContent.trim().split(/\s+/).map(Number);
+      if(t!=null&&isFinite(p[0])&&isFinite(p[1]))out.push({t,lat:p[1],lon:p[0],sp:null,acc:null,hr:null,ele:p[2]||null});}}
+  return {pts:out,src:"phone"};
+}
+/* FIT (Garmin): komunikaty record (nr 20) */
+function parseFIT(buf){
+  const dv=new DataView(buf);const out=[];let pos=0;let lastTs=null;
+  while(pos+12<=buf.byteLength){
+    const hs=dv.getUint8(pos),ds=dv.getUint32(pos+4,true);
+    if(String.fromCharCode(dv.getUint8(pos+8),dv.getUint8(pos+9),dv.getUint8(pos+10),dv.getUint8(pos+11))!==".FIT")break;
+    let p=pos+hs;const end=p+ds;const defs={};
+    while(p<end){
+      const h=dv.getUint8(p++);
+      if(h&0x80){const lt=(h>>5)&3,off=h&0x1f;const d=defs[lt];if(!d)throw new Error("FIT: brak definicji");
+        let ts=null;if(lastTs!=null){ts=(lastTs&~0x1f)+off;if(off<(lastTs&0x1f))ts+=0x20;lastTs=ts;}
+        p=readMsg(d,p,ts);continue;}
+      if(h&0x40){const lt=h&0x0f,dev=h&0x20;p++;const arch=dv.getUint8(p++);const le=arch===0;
+        const gn=dv.getUint16(p,le);p+=2;const nf=dv.getUint8(p++);const f=[];
+        for(let i=0;i<nf;i++){f.push({n:dv.getUint8(p),s:dv.getUint8(p+1),b:dv.getUint8(p+2)});p+=3;}
+        let devSize=0;if(dev){const nd=dv.getUint8(p++);for(let i=0;i<nd;i++){devSize+=dv.getUint8(p+1);p+=3;}}
+        defs[lt]={le,gn,f,devSize};continue;}
+      const d=defs[h&0x0f];if(!d)throw new Error("FIT: brak definicji");p=readMsg(d,p,null);
+    }
+    pos=end+2;
+  }
+  function rd(p,s,signed,le){
+    if(s===1)return signed?dv.getInt8(p):dv.getUint8(p);
+    if(s===2)return signed?dv.getInt16(p,le):dv.getUint16(p,le);
+    if(s===4)return signed?dv.getInt32(p,le):dv.getUint32(p,le);
+    return null;}
+  function readMsg(d,p,cts){
+    if(d.gn!==20){for(const f of d.f)p+=f.s;return p+d.devSize;}
+    const r={};
+    for(const f of d.f){const signed=f.n===0||f.n===1;r[f.n]=rd(p,f.s,signed,d.le);p+=f.s;}
+    p+=d.devSize;
+    let ts=r[253]!=null&&r[253]!==0xffffffff?r[253]:cts;
+    if(r[253]!=null&&r[253]!==0xffffffff)lastTs=r[253];
+    const la=r[0],lo=r[1];
+    if(ts!=null&&la!=null&&lo!=null&&la!==0x7fffffff&&lo!==0x7fffffff){
+      const sc=180/2147483648;
+      let sp=r[73]!=null&&r[73]!==0xffffffff?r[73]/1000:(r[6]!=null&&r[6]!==0xffff?r[6]/1000:null);
+      let ele=r[78]!=null&&r[78]!==0xffffffff?r[78]/5-500:(r[2]!=null&&r[2]!==0xffff?r[2]/5-500:null);
+      out.push({t:(ts+631065600)*1000,lat:la*sc,lon:lo*sc,sp:sp!=null?sp*3.6:null,acc:null,
+        hr:r[3]!=null&&r[3]!==0xff?r[3]:null,ele});
+    }
+    return p;}
+  return {pts:out,src:"watch"};
+}
+/* ZIP (eksport z Garmin Connect) */
+async function unzip(buf){
+  const dv=new DataView(buf);let e=-1;
+  for(let i=buf.byteLength-22;i>=Math.max(0,buf.byteLength-66000);i--)if(dv.getUint32(i,true)===0x06054b50){e=i;break;}
+  if(e<0)throw new Error("niepoprawny ZIP");
+  const n=dv.getUint16(e+10,true);let p=dv.getUint32(e+16,true);const files=[];
+  for(let k=0;k<n;k++){
+    if(dv.getUint32(p,true)!==0x02014b50)break;
+    const meth=dv.getUint16(p+10,true),cs=dv.getUint32(p+20,true),nl=dv.getUint16(p+28,true),xl=dv.getUint16(p+30,true),cl=dv.getUint16(p+32,true),lo=dv.getUint32(p+42,true);
+    const name=new TextDecoder().decode(new Uint8Array(buf,p+46,nl));p+=46+nl+xl+cl;
+    const ds=lo+30+dv.getUint16(lo+26,true)+dv.getUint16(lo+28,true);const raw=new Uint8Array(buf,ds,cs);
+    let data;if(meth===0)data=raw.slice().buffer;
+    else if(meth===8){const st=new Blob([raw]).stream().pipeThrough(new DecompressionStream("deflate-raw"));data=await new Response(st).arrayBuffer();}
+    else continue;
+    files.push({name,data});
+  }
+  return files;
+}
+async function parseFile(name,buf){
+  name=name.toLowerCase();
+  if(name.endsWith(".zip")){const fs=await unzip(buf);const r=[];for(const f of fs)r.push(...await parseFile(f.name,f.data));return r;}
+  const u8=new Uint8Array(buf,0,Math.min(12,buf.byteLength));
+  if(name.endsWith(".fit")||(u8.length>=12&&String.fromCharCode(u8[8],u8[9],u8[10],u8[11])===".FIT"))return[parseFIT(buf)];
+  const txt=new TextDecoder().decode(buf);
+  if(/<gpx/i.test(txt.slice(0,3000)))return[parseGPX(txt)];
+  if(/<kml/i.test(txt.slice(0,3000)))return[parseKML(txt)];
+  return[parseCSV(txt)];
+}
+/* ================= magazyn (IndexedDB w telefonie) ================= */
+let IDB=null,INDEX={days:{}},PLACES=[];const CACHE=new Map();
+const rq=r=>new Promise((res,rej)=>{r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});
+async function idbOpen(){const r=indexedDB.open("osczasu2",1);r.onupgradeneeded=()=>{r.result.createObjectStore("kv");r.result.createObjectStore("geo");};IDB=await rq(r);}
+const kvGet=(k,s="kv")=>rq(IDB.transaction(s).objectStore(s).get(k));
+const kvSet=(k,v,s="kv")=>rq(IDB.transaction(s,"readwrite").objectStore(s).put(v,k));
+const kvDel=(k,s="kv")=>rq(IDB.transaction(s,"readwrite").objectStore(s).delete(k));
+async function kvAll(s){const st=IDB.transaction(s).objectStore(s);const [ks,vs]=await Promise.all([rq(st.getAllKeys()),rq(st.getAll())]);return ks.map((k,i)=>[k,vs[i]]);}
+/* kolumny: t (ms), lat, lon, sp (km/h, NaN=brak), acc (m), hr, ele */
+const FIELDS=["t","lat","lon","sp","acc","hr","ele"];
+function toCols(pts){const n=pts.length,c={t:new Float64Array(n),lat:new Float64Array(n),lon:new Float64Array(n),
+  sp:new Float32Array(n),acc:new Float32Array(n),hr:new Float32Array(n),ele:new Float32Array(n)};
+  pts.forEach((p,i)=>{c.t[i]=p.t;c.lat[i]=p.lat;c.lon[i]=p.lon;c.sp[i]=p.sp??NaN;c.acc[i]=p.acc??NaN;c.hr[i]=p.hr??NaN;c.ele[i]=p.ele??NaN;});return c;}
+function fromCols(c,src){const n=c?c.t.length:0,o=new Array(n);const nn=x=>isNaN(x)?null:x;
+  for(let i=0;i<n;i++)o[i]={t:c.t[i],lat:c.lat[i],lon:c.lon[i],sp:nn(c.sp[i]),acc:nn(c.acc[i]),hr:nn(c.hr[i]),ele:nn(c.ele[i]),src};return o;}
+function mergePts(a,b){const all=a.concat(b).filter(p=>isFinite(p.t)&&isFinite(p.lat)&&isFinite(p.lon)&&Math.abs(p.lat)<=90&&Math.abs(p.lon)<=180).sort((x,y)=>x.t-y.t);
+  const u=[];for(const p of all){const L=u[u.length-1];if(L&&p.t-L.t<300){if(p.acc!=null&&(L.acc==null||p.acc<L.acc))u[u.length-1]=p;continue;}u.push(p);}return u;}
+async function initStore(){
+  const st=$("store");
+  try{await idbOpen();const ix=await kvGet("index");if(ix&&ix.days)INDEX={days:ix.days};PLACES=(await kvGet("places"))||[];
+    let per=false;try{per=navigator.storage&&navigator.storage.persist?await navigator.storage.persist():false;}catch(e){}
+    st.textContent="Dane w telefonie"+(per?" (trwałe)":"");}
+  catch(e){IDB=null;st.textContent="Brak zapisu – dane do zamknięcia strony";}
+  refreshDays();
+}
+async function loadDay(k){if(CACHE.has(k))return CACHE.get(k);if(!IDB)return null;const d=await kvGet("d-"+k);if(d)CACHE.set(k,d);return d||null;}
+async function saveDay(d){CACHE.set(d.date,d);ANA.delete(d.date);INDEX.days[d.date]=summary(d);if(IDB){await kvSet("d-"+d.date,d);await kvSet("index",{days:INDEX.days});}}
+async function savePlaces(){if(IDB)await kvSet("places",PLACES);ANA.clear();}
+
+/* ================= analiza ================= */
+const ANA=new Map();
+function analyzeDay(d){if(ANA.has(d.date))return ANA.get(d.date);const a=analyze(d);ANA.set(d.date,a);return a;}
+/* scalanie: w okresach nagrywania zegarka używany jest zegarek (odbiornik wielopasmowy), poza nimi telefon */
+function buildTrack(d){
+  const W=fromCols(d.watch,"watch"),Ph=fromCols(d.phone,"phone");
+  if(!W.length)return Ph;if(!Ph.length)return W;
+  const iv=[];let s=0;for(let i=1;i<=W.length;i++){if(i===W.length||W[i].t-W[i-1].t>60000){iv.push([W[s].t-1000,W[i-1].t+1000]);s=i;}}
+  let k=0;const keep=[];for(const p of Ph){while(k<iv.length&&iv[k][1]<p.t)k++;if(k<iv.length&&p.t>=iv[k][0]&&p.t<=iv[k][1])continue;keep.push(p);}
+  return keep.concat(W).sort((a,b)=>a.t-b.t);
+}
+function filterPts(P){
+  const u=[];let dropAcc=0,dropJump=0;
+  for(const p of P){
+    if(p.acc!=null&&p.acc>S.acc){dropAcc++;continue;}
+    const L=u[u.length-1];
+    if(L){const dt=(p.t-L.t)/1000;if(dt<0.3)continue;const v=hav(L.lat,L.lon,p.lat,p.lon)/dt*3.6;
+      if(dt<120&&v>250&&!(p.sp!=null&&p.sp>200)){dropJump++;continue;}}
+    u.push(p);}
+  return {P:u,dropAcc,dropJump};
+}
+/* prędkość: Doppler z odbiornika, a gdy brak – z przemieszczenia w oknie ±10 s; kolor i maksimum z mediany 3 pomiarów */
+function speeds(P){
+  const n=P.length,W=10000,G=60000;let j=0,k=0;
+  for(let i=0;i<n;i++){
+    if(P[i].sp!=null){P[i].vr=P[i].sp;P[i].dop=true;continue;}
+    P[i].dop=false;
+    if(j>i)j=i;while(j<i&&(P[i].t-P[j].t>W||P[j+1].t-P[j].t>G))j++;
+    if(k<i)k=i;while(k+1<n&&P[k+1].t-P[i].t<=W&&P[k+1].t-P[k].t<=G)k++;while(k>i&&P[k].t-P[i].t>W)k--;
+    let a=j,b=k;if(a===b){if(i>0&&P[i].t-P[i-1].t<=G)a=i-1;else if(i+1<n&&P[i+1].t-P[i].t<=G)b=i+1;}
+    const dt=(P[b].t-P[a].t)/1000;P[i].vr=dt>0?hav(P[a].lat,P[a].lon,P[b].lat,P[b].lon)/dt*3.6:0;}
+  for(let i=0;i<n;i++){const w=[P[i].vr];if(i>0&&P[i].t-P[i-1].t<=3000)w.push(P[i-1].vr);if(i+1<n&&P[i+1].t-P[i].t<=3000)w.push(P[i+1].vr);
+    w.sort((x,y)=>x-y);P[i].v=w.length===2?(w[0]+w[1])/2:w[w.length>>1];}
+}
+/* pobyty: punkty w promieniu R od bieżącego środka skupiska przez co najmniej S.stay min (luki w danych w środku są wliczane) */
+function findStays(P){
+  const n=P.length,R=S.rad,T=S.stay*60000,lab=new Int32Array(n).fill(-1),stays=[];let i=0;
+  while(i<n){
+    let sl=P[i].lat,so=P[i].lon,c=1,j=i;
+    while(j+1<n){const q=P[j+1];if(hav(sl/c,so/c,q.lat,q.lon)>R)break;sl+=q.lat;so+=q.lon;c++;j++;}
+    if(P[j].t-P[i].t>=T){
+      const id=stays.length;stays.push({i0:i,i1:j});for(let q=i;q<=j;q++)lab[q]=id;i=j+1;
+    }else i++;
+  }
+  /* doprecyzowanie granic: na brzegach skupiska pomiary z ruchem (prędkość ≥ 3 km/h z odbiornika, ≥ 4 km/h liczona z położeń) należą już do przejścia/jazdy */
+  for(const s of stays){
+    const mv=i=>P[i].v>=(P[i].dop?3:4);
+    while(s.i1>s.i0&&mv(s.i1)){lab[s.i1]=-1;s.i1--;}
+    while(s.i0<s.i1&&mv(s.i0)){lab[s.i0]=-1;s.i0++;}}
+  /* sąsiednie pobyty w tym samym miejscu (np. krótkie wyjście sygnału) łączone */
+  for(let s=stays.length-1;s>0;s--){const A=stays[s-1],B=stays[s];const a=locOf(P,A.i0,A.i1),b=locOf(P,B.i0,B.i1);
+    const between=P[B.i0].t-P[A.i1].t;
+    if(hav(a.lat,a.lon,b.lat,b.lon)<=R&&between<=S.stay*60000&&maxDist(P,A.i1,B.i0,a)<=R*2){
+      for(let q=A.i1+1;q<=B.i1;q++)lab[q]=s-1;A.i1=B.i1;stays.splice(s,1);for(let q=B.i0;q<n;q++)if(lab[q]>s-1)lab[q]--;}}
+  return {lab,stays};
+}
+function maxDist(P,a,b,c){let m=0;for(let i=a;i<=b;i++)m=Math.max(m,hav(c.lat,c.lon,P[i].lat,P[i].lon));return m;}
+/* położenie pobytu: mediana współrzędnych najdokładniejszej połowy pomiarów */
+function locOf(P,a,b){let q=[];for(let i=a;i<=b;i++)q.push(P[i]);
+  const acs=q.filter(p=>p.acc!=null).map(p=>p.acc);const am=median(acs);if(am!=null)q=q.filter(p=>p.acc==null||p.acc<=am);
+  const lat=median(q.map(p=>p.lat)),lon=median(q.map(p=>p.lon));
+  return {lat,lon,acc:am,spread:median(q.map(p=>hav(lat,lon,p.lat,p.lon))),n:b-a+1};}
+
+function analyze(d){
+  const raw=buildTrack(d);const {P,dropAcc,dropJump}=filterPts(raw);const n=P.length;
+  const res={P,segs:[],events:[],dropAcc,dropJump,nRaw:raw.length,dop:0,watch:0};
+  if(n<2)return res;
+  speeds(P);res.dop=P.filter(p=>p.dop).length/n;res.watch=P.filter(p=>p.src==="watch").length/n;
+  const {lab,stays}=findStays(P);
+  /* etykiety punktów */
+  const L=new Array(n);
+  for(let i=0;i<n;i++)L[i]=lab[i]>=0?"stay:"+lab[i]:(P[i].v<S.haltV?"halt":P[i].v<S.walk?"walk":P[i].v<S.run?"run":"drive");
+  /* ciągi */
+  const GAP=10*60000;let segs=[];
+  for(let i=0;i<n;i++){
+    const last=segs[segs.length-1];
+    if(last&&i>0&&P[i].t-P[i-1].t>GAP&&!(L[i]===L[i-1]&&L[i].startsWith("stay"))){
+      segs.push({c:"gap",i0:i-1,i1:i,gap:true});segs.push({c:L[i],i0:i,i1:i});continue;}
+    if(last&&last.c===L[i]&&!last.gap)last.i1=i;else segs.push({c:L[i],i0:i,i1:i});
+  }
+  const isStay=s=>s.c.startsWith("stay");const isMov=s=>!s.gap&&!isStay(s);
+  const dur=s=>P[s.i1].t-P[s.i0].t+1000;
+  const join=()=>{for(let q=segs.length-1;q>0;q--){const A=segs[q-1],B=segs[q];if(!A.gap&&!B.gap&&A.c===B.c){A.i1=B.i1;segs.splice(q,1);}}};
+  /* zatrzymania krótsze od pobytu dołączane do sąsiedniego ruchu */
+  const absorb=(pred,minMs)=>{let g=0;while(g++<200000){let mi=-1,md=Infinity;
+      for(let q=0;q<segs.length;q++){const s=segs[q];if(!pred(s))continue;const dd=dur(s);if(dd<md){md=dd;mi=q;}}
+      if(mi<0||md>=minMs)break;
+      const A=segs[mi-1],B=segs[mi+1];const okA=A&&isMov(A)&&A.c!=="halt",okB=B&&isMov(B)&&B.c!=="halt";
+      let tg=null;if(okA&&okB)tg=dur(A)>=dur(B)?A:B;else if(okA)tg=A;else if(okB)tg=B;
+      if(!tg){segs[mi].c=segs[mi].c==="halt"?"walk":segs[mi].c;segs[mi].lock=true;continue;}
+      if(tg===A)A.i1=segs[mi].i1;else B.i0=segs[mi].i0;segs.splice(mi,1);join();}};
+  join();
+  absorb(s=>s.c==="halt"&&!s.lock,Infinity);
+  for(const s of segs)if(s.c==="halt")s.c="walk";
+  join();
+  absorb(s=>isMov(s)&&!s.lock,S.min*1000);
+  /* chód/bieg wciśnięty między dwa odcinki jazdy bez pobytu = jazda w korku */
+  for(let q=1;q<segs.length-1;q++){const s=segs[q];if((s.c==="walk"||s.c==="run")&&segs[q-1].c==="drive"&&segs[q+1].c==="drive"&&dur(s)<5*60000)s.c="drive";}
+  join();
+  /* granice czasowe: koniec pobytu = ostatni pomiar w miejscu; ruch trwa do pierwszego pomiaru następnego pobytu */
+  for(let q=0;q<segs.length;q++){const s=segs[q],nx=segs[q+1];
+    s.t0=q===0?P[s.i0].t:segs[q-1].t1;
+    if(!nx)s.t1=P[s.i1].t;else if(s.gap)s.t1=P[s.i1].t;else if(isStay(s))s.t1=P[s.i1].t;else s.t1=nx.gap?P[s.i1].t:P[nx.i0].t;
+    if(s.gap)s.t0=P[s.i0].t;}
+  for(const s of segs){if(isStay(s)){s.c="stay";Object.assign(s,locOf(P,s.i0,s.i1));}}
+  /* korekty ręczne */
+  applyEdits(d,segs,P);
+  for(const s of segs)segStats(s,P,segs);
+  res.segs=segs;
+  res.events=detectEvents(P);
+  for(const e of res.events){const s=segs.find(s=>e.t>=s.t0&&e.t<=s.t1);if(s){(s.ev=s.ev||{brake:0,accel:0,corner:0})[e.type]++;}}
+  for(const s of segs)if(s.c==="drive")s.score=s.dopShare>=0.5?score(s):null;
+  return res;
+}
+function applyEdits(d,segs,P){
+  const E=d.edits||{};if(!Object.keys(E).length)return;
+  for(let q=0;q<segs.length;q++){const s=segs[q];const key=String(Math.round(s.t0/1000));const e=E[key];if(!e)continue;
+    s.edited=true;if(e.note)s.note=e.note;
+    if(e.merge&&segs[q+1]){const B=segs[q+1];s.i1=B.i1;s.t1=B.t1;segs.splice(q+1,1);}
+    if(e.c&&e.c!==s.c){s.c=e.c;}
+    if(s.c==="stay")Object.assign(s,locOf(P,s.i0,s.i1));}
+}
+function segStats(s,P,segs){
+  if(s.gap){s.d=0;s.lat=P[s.i0].lat;s.lon=P[s.i0].lon;s.lat2=P[s.i1].lat;s.lon2=P[s.i1].lon;s.d=hav(s.lat,s.lon,s.lat2,s.lon2);return;}
+  const hrs=[];for(let i=s.i0;i<=s.i1;i++)if(P[i].hr!=null)hrs.push(P[i].hr);
+  s.hr=hrs.length?hrs.reduce((a,b)=>a+b,0)/hrs.length:null;s.hrMax=hrs.length?Math.max(...hrs):null;
+  if(s.c==="stay"){s.d=0;s.max=null;return;}
+  /* dystans: całka z prędkości przy gęstych pomiarach (≤5 s), odcinek prosty przy rzadszych */
+  let d=0,mx=-1,mi=s.i0,hi=0,hiD=0;const last=Math.min(s.i1+1,P.length-1);
+  for(let i=s.i0;i<last;i++){const a=P[i],b=P[i+1];const dt=(b.t-a.t)/1000;
+    let dd=dt<=5?(a.v+b.v)/2/3.6*dt:hav(a.lat,a.lon,b.lat,b.lon);
+    if(dt>5&&dt<=60&&a.dop&&b.dop){dd=Math.max(dd,0);} d+=dd;if(a.v>S.high){hiD+=dd;hi+=dt;}}
+  for(let i=s.i0;i<=s.i1;i++)if(P[i].v>mx){mx=P[i].v;mi=i;}
+  let nd=0;for(let i=s.i0;i<=s.i1;i++)if(P[i].dop)nd++;s.dopShare=nd/(s.i1-s.i0+1);
+  s.d=d;s.max=mx;s.maxAt=mi;s.hiD=hiD;s.hiT=hi;
+  const q=segs.indexOf(s),A=segs[q-1],B=segs[q+1];
+  s.lat=A&&A.c==="stay"?A.lat:P[s.i0].lat;s.lon=A&&A.c==="stay"?A.lon:P[s.i0].lon;
+  s.lat2=B&&B.c==="stay"?B.lat:P[Math.min(s.i1+1,P.length-1)].lat;s.lon2=B&&B.c==="stay"?B.lon:P[Math.min(s.i1+1,P.length-1)].lon;
+}
+/* zdarzenia wg definicji iSharing: zmiana prędkości w ciągu 1 s, przy prędkości ≥ 24 km/h; tylko prędkość z odbiornika (Doppler) */
+function detectEvents(P){
+  const n=P.length,raw=[];
+  const ok=i=>i>=0&&i<n&&P[i].dop&&(P[i].acc==null||P[i].acc<=15);
+  const step=(i)=>{if(!ok(i)||!ok(i-1))return null;const dt=(P[i].t-P[i-1].t)/1000;if(dt<0.5||dt>1.6)return null;return (P[i].vr-P[i-1].vr)/dt;};
+  for(let i=1;i<n;i++){const a=step(i);if(a==null)continue;
+    if(Math.max(P[i].vr,P[i-1].vr)<S.evMin)continue;
+    const nxt=step(i+1),prv=step(i-1);
+    if(a<=-S.brake){ if(nxt!=null&&nxt>S.brake*0.6)continue; if(prv!=null&&prv>S.accel*0.6)continue; raw.push({type:"brake",i,a}); }
+    else if(a>=S.accel){ if(nxt!=null&&nxt<-S.brake*0.6)continue; if(prv!=null&&prv<-S.brake*0.6)continue; raw.push({type:"accel",i,a}); }
+  }
+  /* zakręty: przyspieszenie boczne = prędkość × prędkość zmiany kierunku; położenia wygładzone (±2 s), cięciwy ok. 2 s i ≥ 10 m */
+  const sm=P.map((p,i)=>{let la=0,lo=0,c=0;for(let q=Math.max(0,i-3);q<=Math.min(n-1,i+3);q++){if(Math.abs(P[q].t-p.t)<=2500){la+=P[q].lat;lo+=P[q].lon;c++;}}return{lat:la/c,lon:lo/c};});
+  for(let i=2;i<n-2;i++){const p=P[i];if(p.v<20)continue;
+    let a=i-1;while(a>0&&p.t-P[a].t<2000)a--;let b=i+1;while(b<n-1&&P[b].t-p.t<2000)b++;
+    if(p.t-P[a].t>3000||P[b].t-p.t>3000)continue;
+    if(hav(sm[a].lat,sm[a].lon,sm[i].lat,sm[i].lon)<10||hav(sm[i].lat,sm[i].lon,sm[b].lat,sm[b].lon)<10)continue;
+    const h1=bearing(sm[a].lat,sm[a].lon,sm[i].lat,sm[i].lon),h2=bearing(sm[i].lat,sm[i].lon,sm[b].lat,sm[b].lon);
+    const dt=(P[b].t-P[a].t)/2000;const lat=p.v/3.6*Math.abs(wrapPi(h2-h1))/dt;
+    if(lat>=S.corner)raw.push({type:"corner",i,a:lat});}
+  /* łączenie w zdarzenia; zakręt: ≥ 2 kolejne punkty nad progiem albo jeden ≥ 110% progu */
+  raw.sort((x,y)=>x.i-y.i);const ev=[];
+  for(const r of raw){const L=ev.find(e=>e.type===r.type&&P[r.i].t-e.tEnd<=3000);
+    if(L){L.tEnd=P[r.i].t;L.cnt++;if(Math.abs(r.a)>Math.abs(L.a)){L.a=r.a;L.i=r.i;}L.i1=r.i;}
+    else ev.push({type:r.type,i:r.i,i0:r.i,i1:r.i,a:r.a,tEnd:P[r.i].t,cnt:1});}
+  return ev.filter(e=>e.type!=="corner"||e.cnt>=2||e.a>=S.corner*1.1).map(e=>{const p=P[e.i];
+    const ms2=e.type==="corner"?e.a:Math.abs(e.a)/3.6;
+    return {type:e.type,t:p.t,lat:p.lat,lon:p.lon,ms2,g:ms2/9.80665,kmhs:e.type==="corner"?null:Math.abs(e.a),
+      v0:P[Math.max(0,e.i0-1)].vr,v1:P[e.i1].vr};});
+}
+/* ocena umowna: 100 − 10×hamowanie − 8×przyspieszenie − 5×zakręt − 2×min powyżej progu dużej prędkości */
+function score(s){const e=s.ev||{brake:0,accel:0,corner:0};return Math.max(0,Math.round(100-10*e.brake-8*e.accel-5*e.corner-2*(s.hiT||0)/60));}
+function summary(d){const a=analyzeDay(d);const o={km:{},t:{},trips:0,ev:{brake:0,accel:0,corner:0},max:null};
+  for(const s of a.segs){o.km[s.c]=(o.km[s.c]||0)+(s.d||0);o.t[s.c]=(o.t[s.c]||0)+(s.t1-s.t0)/1000;
+    if(s.c==="drive"){o.trips++;if(o.max==null||s.max>o.max)o.max=s.max;}}
+  for(const e of a.events)o.ev[e.type]++;
+  o.dist=MOVING.reduce((x,c)=>x+(o.km[c]||0),0);return o;}
+/* ================= adresy (OpenStreetMap: Nominatim, zapasowo Photon) ================= */
+const GEO=new Map();let geoQ=[],geoBusy=false,geoLast=0;
+const gkey=(la,lo)=>la.toFixed(5)+","+lo.toFixed(5);
+function placeAt(la,lo){let best=null;for(const p of PLACES){const d=hav(la,lo,p.lat,p.lon);if(d<=p.r&&(!best||d<best.d))best={p,d};}return best;}
+async function geocode(la,lo){
+  const k=gkey(la,lo);if(GEO.has(k))return GEO.get(k);
+  if(IDB){try{const c=await kvGet(k,"geo");if(c){GEO.set(k,c);return c;}}catch(e){}}
+  return new Promise(res=>{geoQ.push({la,lo,k,res});pumpGeo();});
+}
+async function pumpGeo(){
+  if(geoBusy)return;geoBusy=true;
+  while(geoQ.length){const j=geoQ.shift();if(GEO.has(j.k)){j.res(GEO.get(j.k));continue;}
+    const w=1100-(Date.now()-geoLast);if(w>0)await sleep(w);geoLast=Date.now();
+    let r=null;
+    try{const u=`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${j.la}&lon=${j.lo}&zoom=18&addressdetails=1&accept-language=pl`;
+      const x=await fetch(u,{signal:AbortSignal.timeout(8000)});if(x.ok){const o=await x.json();if(o&&o.address){const a=o.address;
+        r={street:a.road||a.pedestrian||a.footway||a.square||a.hamlet||"",no:a.house_number||"",town:a.city||a.town||a.village||a.hamlet||a.municipality||"",
+          lat:+o.lat,lon:+o.lon,name:(o.name&&o.name!==a.road)?o.name:"",src:"OSM Nominatim"};}}}catch(e){}
+    if(!r){try{const x=await fetch(`https://photon.komoot.io/reverse?lat=${j.la}&lon=${j.lo}`,{signal:AbortSignal.timeout(8000)});if(x.ok){const o=await x.json();const f=o.features&&o.features[0];
+        if(f){const p=f.properties;r={street:p.street||"",no:p.housenumber||"",town:p.city||p.district||p.county||"",lat:f.geometry.coordinates[1],lon:f.geometry.coordinates[0],
+          name:p.name&&p.name!==p.street?p.name:"",src:"OSM Photon"};}}}catch(e){}}
+    if(r){r.dist=hav(j.la,j.lo,r.lat,r.lon);GEO.set(j.k,r);if(IDB)try{await kvSet(j.k,r,"geo");}catch(e){}}
+    j.res(r);}
+  geoBusy=false;
+}
+function addrTxt(r){if(!r)return "adres niedostępny";
+  const line=(r.street?r.street+(r.no?" "+r.no:""):(r.name||"brak nazwy ulicy"))+(r.town?", "+r.town:"");
+  return line+(r.no?"":" (bez numeru)");}
+function fillAddr(el,la,lo,prefix){
+  const pl=placeAt(la,lo);
+  const set=r=>{const base=addrTxt(r);const dist=r&&r.no?` · ${nf0.format(r.dist)} m od budynku`:"";
+    el.innerHTML=(prefix||"")+(pl?`<b>${esc(pl.p.name)}</b> · `:"")+esc(base)+`<span class="note">${dist}</span>`;};
+  el.innerHTML=(prefix||"")+(pl?`<b>${esc(pl.p.name)}</b> · `:"")+`<span class="note">szukanie adresu…</span>`;
+  geocode(la,lo).then(set);
+}
+
+/* ================= dni ================= */
+let cur=null;
+function refreshDays(sel){
+  const ks=Object.keys(INDEX.days).sort();
+  $("dayBar").style.display=ks.length?"":"none";$("empty").style.display=ks.length?"none":"";
+  const Sx=$("daySel");Sx.innerHTML="";
+  for(const k of ks.slice().reverse()){const o=document.createElement("option");o.value=k;o.textContent=dayLabel(k)+" · "+fmtKm(INDEX.days[k].dist||0);Sx.appendChild(o);}
+  if(!ks.length){$("view").innerHTML="";return;}
+  cur=sel&&INDEX.days[sel]?sel:(cur&&INDEX.days[cur]?cur:ks[ks.length-1]);Sx.value=cur;show(cur);
+}
+$("daySel").onchange=e=>{cur=e.target.value;show(cur);};
+$("prev").onclick=()=>stepDay(1);$("next").onclick=()=>stepDay(-1);
+function stepDay(d){const Sx=$("daySel");const i=Sx.selectedIndex+d;if(i>=0&&i<Sx.options.length){Sx.selectedIndex=i;cur=Sx.value;show(cur);}}
+
+/* ================= import ================= */
+/* items: [{name, buf}] → zapis do dni; zwraca {keys, n, errs} */
+async function importBuffers(items){
+  const add={};let n=0;const errs=[];
+  for(const f of items){try{const res=await parseFile(f.name,f.buf);
+      for(const r of res){for(const p of r.pts){const k=dateKey(p.t);(add[k]=add[k]||{phone:[],watch:[]})[r.src].push(p);n++;}}
+      if(!res.some(r=>r.pts.length))errs.push(f.name+": brak punktów z czasem i położeniem");}
+    catch(e){errs.push(f.name+": "+(e.message||"błąd odczytu"));}}
+  const keys=Object.keys(add).sort();
+  for(const k of keys){const ex=(await loadDay(k))||{date:k,edits:{}};
+    const d={date:k,edits:ex.edits||{},phone:toCols(mergePts(fromCols(ex.phone,"phone"),add[k].phone)),watch:toCols(mergePts(fromCols(ex.watch,"watch"),add[k].watch))};
+    await saveDay(d);}
+  return {keys,n,errs};
+}
+$("file").onchange=async ev=>{
+  const files=[...ev.target.files];ev.target.value="";if(!files.length)return;
+  msg("Wczytywanie "+files.length+" plików…");
+  let r;try{r=await importBuffers(await Promise.all(files.map(async f=>({name:f.name,buf:await f.arrayBuffer()}))));}
+  catch(e){msg("Zapis w telefonie nie powiódł się: "+(e&&e.message||e),true);return;}
+  if(!r.keys.length){msg(r.errs.join(" · ")||"Brak danych.",true);return;}
+  msg(`Zaimportowano ${nf0.format(r.n)} punktów, dni: ${r.keys.length}.`+(r.errs.length?" Problemy: "+r.errs.join(" · "):""),!!r.errs.length);
+  refreshDays(r.keys[r.keys.length-1]);autoBackup();
+};
+
+/* ================= widok dnia ================= */
+let MAP=null,LAY=null,HL=null,PLAYM=null,colorMode="speed",curA=null,playT=null;
+let renderTok=0;
+async function show(k,keepView){
+  $("sumView").style.display="none";$("view").style.display="";
+  const tok=++renderTok;const V=$("view");
+  let d=null;try{d=await loadDay(k);}catch(e){}
+  if(tok!==renderTok)return;
+  if(!d){V.innerHTML='<div class="card note">Nie udało się wczytać dnia.</div>';return;}
+  const A=analyzeDay(d);curA=A;const {P,segs,events}=A;
+  const agg={};for(const c in CLS)agg[c]={t:0,d:0};let mx=null,mxAt=null;
+  for(const s of segs){agg[s.c].t+=(s.t1-s.t0)/1000;agg[s.c].d+=s.d||0;if(s.max!=null&&s.c!=="stay"&&(mx==null||s.max>mx)){mx=s.max;mxAt=s.maxAt;}}
+  const mov=["walk","run","bike","drive"];const mvT=mov.reduce((a,c)=>a+agg[c].t,0),mvD=mov.reduce((a,c)=>a+agg[c].d,0);
+  const ec={brake:0,accel:0,corner:0};for(const e of events)ec[e.type]++;
+  const tile=(k,v,s,c)=>`<div class="tile"><div class="k">${c?`<span class="sw" style="background:${ccol(c)}"></span>`:""}${k}</div><div class="v">${v}</div>${s?`<div class="s">${s}</div>`:""}</div>`;
+  const ct=c=>agg[c].t>0?tile(CLS[c].n,fmtDur(agg[c].t),c==="stay"?segs.filter(s=>s.c==="stay").length+" miejsc":fmtKm(agg[c].d),c):"";
+  const qual=`Punktów: ${nf0.format(P.length)} z ${nf0.format(A.nRaw)} (odrzucone: ${A.dropAcc} słaba dokładność, ${A.dropJump} skoki) · prędkość z odbiornika: ${nf0.format(A.dop*100)}% · z zegarka: ${nf0.format(A.watch*100)}%`;
+  let h=`<div class="card"><div class="tiles">
+    ${tile("W ruchu",fmtKm(mvD),fmtDur(mvT))}
+    ${tile("Maks. prędkość",fmtV(mx),mxAt!=null?"o "+fmtTs(P[mxAt].t):"")}
+    ${ct("drive")}${ct("walk")}${ct("run")}${ct("bike")}${ct("stay")}
+    ${tile("Zdarzenia",ec.brake+ec.accel+ec.corner,`<span class="dot" style="background:${EVC.brake}"></span>${ec.brake} <span class="dot" style="background:${EVC.accel}"></span>${ec.accel} <span class="dot" style="background:${EVC.corner}"></span>${ec.corner}`)}
+  </div><p class="note" style="margin:8px 0 0">${qual}${A.dop<0.5?" · <b>zdarzenia jazdy wymagają prędkości z odbiornika (GPS Logger: CSV/GPX z polem speed, interwał 1 s)</b>":""}</p></div>`;
+  h+=`<div class="card"><div class="row" style="margin-bottom:8px"><b class="grow">Mapa</b>
+      <select id="cMode"><option value="speed">Kolor: prędkość</option><option value="type">Kolor: rodzaj ruchu</option></select></div>
+    <div id="map"></div><div class="legend" id="legend"></div>
+    <div class="play"><button id="pBtn" class="sm">▶</button><select id="pSpd"><option value="10">×10</option><option value="30" selected>×30</option><option value="60">×60</option><option value="300">×300</option></select>
+      <input id="pRng" type="range" min="0" max="1000" value="0"><span id="pInfo" class="note"></span></div></div>`;
+  h+=`<div class="card"><b>Prędkość${P.some(p=>p.hr!=null)?" i tętno":""}</b><div id="chart"></div></div>`;
+  h+=`<div class="card"><div class="row" style="margin-bottom:4px"><b class="grow">Oś czasu</b>
+      <button class="sm" id="eCsv">CSV</button><button class="sm" id="eGpx">GPX</button>${driveReady()?'<button class="sm" id="eDrv">Na Dysk</button>':""}<button class="sm" id="eDel">Usuń dzień</button></div><ul class="tl" id="tl"></ul></div>`;
+  if(MAP){MAP.remove();MAP=null;}
+  V.innerHTML=h;
+  $("cMode").value=colorMode;$("cMode").onchange=e=>{colorMode=e.target.value;drawTrack();};
+  initMap();drawTrack();drawChart();buildTimeline(d);setupPlay();
+  $("eCsv").onclick=()=>exportCSV(k,false);$("eGpx").onclick=()=>exportGPX(k,false);if($("eDrv"))$("eDrv").onclick=async()=>{try{await exportCSV(k,true);await exportGPX(k,true);}catch(e){msg("Dysk: "+e.message,true);}};$("eDel").onclick=()=>askDelete(k);
+}
+function initMap(){
+  if(!window.L){$("map").innerHTML='<p class="note" style="padding:12px">Mapa niedostępna – biblioteka mapy nie wczytała się (brak internetu?). Oś czasu działa.</p>';return;}
+  MAP=L.map("map",{preferCanvas:true,zoomControl:true});
+  const osm=L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"});
+  const topo=L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",{maxZoom:17,subdomains:"abc",attribution:"© OpenStreetMap, SRTM, © OpenTopoMap"});
+  const sat=L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",{maxZoom:19,attribution:"Esri, Maxar, Earthstar Geographics"});
+  osm.addTo(MAP);L.control.layers({"Mapa OSM":osm,"Satelita (Esri)":sat,"Topograficzna":topo},null,{position:"topright"}).addTo(MAP);
+  L.control.scale({imperial:false}).addTo(MAP);
+  LAY=L.layerGroup().addTo(MAP);
+}
+function drawTrack(){
+  const {P,segs,events}=curA;const lg=$("legend");
+  if(colorMode==="speed")lg.innerHTML=VLBL.map((l,i)=>`<span><span class="sw" style="background:${VCOL[i]}"></span>${l}</span>`).join("")+" km/h";
+  else lg.innerHTML=["drive","walk","run","bike"].map(c=>`<span><span class="sw" style="background:${ccol(c)}"></span>${CLS[c].n}</span>`).join("");
+  lg.innerHTML+=` · <span><span class="dot" style="background:${EVC.accel}"></span>przyspieszenie</span><span><span class="dot" style="background:${EVC.brake}"></span>hamowanie</span><span><span class="dot" style="background:${EVC.corner}"></span>zakręt</span><span>▲ maks.</span><span>⬤ pobyt</span><span>- - brak pomiarów</span>`;
+  if(!MAP)return;LAY.clearLayers();
+  const segOf=new Int32Array(P.length).fill(-1);segs.forEach((s,q)=>{if(s.gap)return;for(let i=s.i0;i<=s.i1;i++)segOf[i]=q;});
+  /* linia: pomijane punkty pobytów; kolor wg prędkości lub rodzaju; przerwy > 15 s linią przerywaną */
+  let run=[],key=null;const flush=()=>{if(run.length>1)L.polyline(run,{color:key,weight:5,opacity:.95,lineJoin:"round"}).addTo(LAY);};
+  for(let i=0;i<P.length-1;i++){const a=P[i],b=P[i+1];const sa=segs[segOf[i]],sb=segs[segOf[i+1]];
+    if(sa&&sa.c==="stay"&&sb&&sb.c==="stay"){flush();run=[];key=null;continue;}
+    const dt=(b.t-a.t)/1000;
+    if(dt>15){flush();run=[];key=null;L.polyline([[a.lat,a.lon],[b.lat,b.lon]],{color:"#777",weight:3,dashArray:"6 8",opacity:.9}).addTo(LAY);continue;}
+    const c=colorMode==="speed"?VCOL[vbin((a.v+b.v)/2)]:ccol(sa&&sa.c!=="stay"?sa.c:(sb?sb.c:"drive"));
+    if(c!==key){flush();run=run.length?[run[run.length-1]]:[[a.lat,a.lon]];key=c;}
+    if(!run.length)run.push([a.lat,a.lon]);run.push([b.lat,b.lon]);}
+  flush();
+  /* pobyty */
+  let nr=0;
+  segs.forEach((s,q)=>{if(s.c!=="stay")return;nr++;
+    L.circle([s.lat,s.lon],{radius:Math.max(8,s.spread||0),color:"#444",weight:1,fillColor:"#666",fillOpacity:.15}).addTo(LAY);
+    const m=L.marker([s.lat,s.lon],{icon:L.divIcon({className:"",html:`<div class="lbl">${nr}</div>`,iconSize:null})}).addTo(LAY);
+    m.on("click",()=>selSeg(q,true));m.bindPopup(()=>{const pl=placeAt(s.lat,s.lon);const g=GEO.get(gkey(s.lat,s.lon));
+      return `<b>Pobyt ${nr}</b>${pl?" – "+esc(pl.p.name):""}<br>${fmtTs(s.t0)} – ${fmtTs(s.t1)} (${fmtDur((s.t1-s.t0)/1000)})<br>${esc(addrTxt(g))}<br><span style="color:#666">położenie ±${nf0.format(s.spread||0)} m${s.acc!=null?", dokładność GPS "+nf0.format(s.acc)+" m":""}</span>`;});});
+  /* zdarzenia */
+  for(const e of events){L.circleMarker([e.lat,e.lon],{radius:8,color:"#fff",weight:2,fillColor:EVC[e.type],fillOpacity:1}).addTo(LAY)
+    .bindPopup(`<b>${EVN[e.type]}</b><br>${fmtTs(e.t)}<br>${e.type==="corner"?"przyspieszenie boczne":"zmiana prędkości"}: ${nf1.format(e.ms2)} m/s² (${nf2.format(e.g)} g)`+
+      (e.kmhs?`<br>${nf1.format(e.kmhs)} km/h w 1 s`:"")+(e.type!=="corner"?`<br>${fmtV(e.v0)} → ${fmtV(e.v1)}`:`<br>przy ${fmtV(P.find(p=>p.t===e.t).v)}`));}
+  /* maksymalne prędkości przejazdów */
+  for(const s of segs){if(s.c!=="drive"&&s.c!=="bike"&&s.c!=="run")continue;if(s.maxAt==null)continue;const p=P[s.maxAt];
+    L.marker([p.lat,p.lon],{icon:L.divIcon({className:"",html:`<div class="lbl">▲ ${nf0.format(s.max)}</div>`,iconSize:null,iconAnchor:[-6,10]})}).addTo(LAY)
+     .bindPopup(`<b>Maks. prędkość ${fmtV(s.max)}</b><br>${fmtTs(p.t)}`);}
+  if(!keepBounds()){const ll=P.map(p=>[p.lat,p.lon]);if(ll.length)MAP.fitBounds(L.latLngBounds(ll).pad(0.05));}
+}
+let _kb=false;function keepBounds(){const r=_kb;_kb=false;return r;}
+function selSeg(q,fromMap){
+  document.querySelectorAll(".tl>li").forEach(li=>li.classList.toggle("sel",+li.dataset.q===q));
+  const s=curA.segs[q];if(!s||!MAP)return;if(HL){HL.remove();HL=null;}
+  const P=curA.P;const ll=[];for(let i=s.i0;i<=Math.min(s.i1+1,P.length-1);i++)ll.push([P[i].lat,P[i].lon]);
+  if(s.c==="stay"){MAP.setView([s.lat,s.lon],18);HL=L.circle([s.lat,s.lon],{radius:Math.max(10,s.spread||0),color:"#000",weight:3,fill:false}).addTo(MAP);}
+  else{HL=L.polyline(ll,{color:"#000",weight:10,opacity:.35}).addTo(MAP);MAP.fitBounds(HL.getBounds().pad(0.15));}
+  if(fromMap){const li=document.querySelector(`.tl>li[data-q="${q}"]`);if(li)li.scrollIntoView({block:"nearest",behavior:"smooth"});}
+  else document.getElementById("map").scrollIntoView({block:"nearest",behavior:"smooth"});
+}
+function buildTimeline(d){
+  const {P,segs,events}=curA;const UL=$("tl");let nr=0;
+  segs.forEach((s,q)=>{
+    const li=document.createElement("li");li.dataset.q=q;const dur=(s.t1-s.t0)/1000;
+    const col=s.c==="stay"?ccol("stay"):s.gap?ccol("gap"):ccol(s.c);
+    let body="";
+    if(s.c==="stay"){nr++;
+      body=`<div class="ti">Pobyt ${nr} · ${fmtDur(dur)}</div><div class="ad" data-a></div>
+        <div class="de">${fmtTs(s.t0)} – ${fmtTs(s.t1)} · położenie ±${nf0.format(s.spread||0)} m${s.acc!=null?" · GPS "+nf0.format(s.acc)+" m":""}${s.hr?" · tętno śr. "+nf0.format(s.hr):""}</div>`;}
+    else if(s.gap){body=`<div class="ti">Brak danych · ${fmtDur(dur)}</div><div class="de">${fmtTs(s.t0)} – ${fmtTs(s.t1)} · przemieszczenie w linii prostej ${fmtKm(s.d)}</div>`;}
+    else{const avg=dur>0?s.d/dur*3.6:null;const e=s.ev||{brake:0,accel:0,corner:0};
+      body=`<div class="ti">${CLS[s.c].n} · ${fmtKm(s.d)} · ${fmtDur(dur)}</div><div class="ad" data-a></div><div class="ad" data-b></div>
+        <div class="de">${fmtTs(s.t0)} – ${fmtTs(s.t1)} · śr. ${fmtV(avg)} · maks. ${fmtV(s.max)}${s.hr?" · tętno śr. "+nf0.format(s.hr)+", maks. "+nf0.format(s.hrMax):""}${s.hiT>0?" · > "+S.high+" km/h: "+fmtKm(s.hiD):""}</div>`+
+        (s.c==="drive"?`<div class="ev"><span class="dot" style="background:${EVC.brake}"></span>${e.brake} <span class="dot" style="background:${EVC.accel}"></span>${e.accel} <span class="dot" style="background:${EVC.corner}"></span>${e.corner} · ocena ${s.score!=null?s.score+"/100":"— (brak prędkości z odbiornika)"}</div>`:"");}
+    if(s.note)body+=`<div class="de">📝 ${esc(s.note)}</div>`;
+    if(s.edited)body+=`<span class="badge">poprawione ręcznie</span>`;
+    body+=`<div class="act">${s.gap?"":`<button class="sm" data-ed>Korekta</button>`}${s.c==="stay"?`<button class="sm" data-pl>Nazwij miejsce</button>`:""}<a class="note" target="_blank" rel="noopener" href="https://www.openstreetmap.org/?mlat=${(s.lat??P[s.i0].lat).toFixed(6)}&mlon=${(s.lon??P[s.i0].lon).toFixed(6)}#map=18/${(s.lat??P[s.i0].lat).toFixed(6)}/${(s.lon??P[s.i0].lon).toFixed(6)}">OSM</a></div>`;
+    li.innerHTML=`<div class="tm">${fmtT(s.t0)}<br>${fmtT(s.t1)}</div><div class="bar" style="background:${col}"></div><div>${body}</div>`;
+    li.onclick=ev=>{if(ev.target.closest("button,a"))return;selSeg(q);};
+    UL.appendChild(li);
+    if(s.c==="stay")fillAddr(li.querySelector("[data-a]"),s.lat,s.lon);
+    else if(!s.gap){fillAddr(li.querySelector("[data-a]"),s.lat,s.lon,"z: ");fillAddr(li.querySelector("[data-b]"),s.lat2,s.lon2,"do: ");}
+    const eb=li.querySelector("[data-ed]");if(eb)eb.onclick=()=>editSeg(d,s);
+    const pb=li.querySelector("[data-pl]");if(pb)pb.onclick=()=>namePlace(s);
+  });
+}
+/* wykres prędkości (i tętna) */
+function drawChart(){
+  const {P,segs}=curA;if(P.length<2){$("chart").innerHTML="";return;}
+  const W=1000,H=420,ml=64,mr=60,mt=34,mb=40;const t0=P[0].t,t1=P[P.length-1].t;
+  let vmax=10;for(const p of P)vmax=Math.max(vmax,p.v);const st=[10,20,25,50,100].find(s=>vmax/s<=6)||50;const top=Math.ceil(vmax/st)*st;
+  const X=t=>ml+(t-t0)/(t1-t0||1)*(W-ml-mr),Y=v=>mt+(1-v/top)*(H-mt-mb);
+  let s=`<svg viewBox="0 0 ${W} ${H}">`;
+  for(let v=0;v<=top;v+=st)s+=`<line x1="${ml}" x2="${W-mr}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)"/><text x="${ml-6}" y="${Y(v)+8}" text-anchor="end" class="axis">${v}</text>`;
+  const span=(t1-t0)/3600000,hs=span>12?3:span>6?2:span>2?1:0.5;const d0=new Date(t0);d0.setMinutes(0,0,0);
+  for(let t=d0.getTime();t<=t1;t+=hs*3600000)if(t>=t0)s+=`<text x="${X(t)}" y="${H-8}" text-anchor="middle" class="axis">${fmtT(t)}</text>`;
+  s+=`<text x="${ml}" y="24" class="axis">km/h</text>`;
+  let run=[],key=null;const fl=()=>{if(run.length>1)s+=`<polyline fill="none" stroke="${key}" stroke-width="3" points="${run.join(" ")}"/>`;};
+  for(let i=0;i<P.length;i++){const p=P[i];if(i>0&&p.t-P[i-1].t>60000){fl();run=[];key=null;}
+    const c=VCOL[vbin(p.v)];if(c!==key){fl();run=run.length?[run[run.length-1]]:[];key=c;}run.push(X(p.t).toFixed(1)+","+Y(p.v).toFixed(1));}
+  fl();
+  const hr=P.filter(p=>p.hr!=null);
+  if(hr.length>1){const hmin=Math.floor(Math.min(...hr.map(p=>p.hr))/10)*10,hmax=Math.ceil(Math.max(...hr.map(p=>p.hr))/10)*10||200;
+    const YH=h=>mt+(1-(h-hmin)/(hmax-hmin||1))*(H-mt-mb);let pts=[];
+    for(let i=0;i<hr.length;i++){if(i>0&&hr[i].t-hr[i-1].t>60000){if(pts.length>1)s+=`<polyline fill="none" stroke="#d6336c" stroke-width="2" stroke-dasharray="6 4" points="${pts.join(" ")}"/>`;pts=[];}pts.push(X(hr[i].t).toFixed(1)+","+YH(hr[i].hr).toFixed(1));}
+    if(pts.length>1)s+=`<polyline fill="none" stroke="#d6336c" stroke-width="2" stroke-dasharray="6 4" points="${pts.join(" ")}"/>`;
+    s+=`<text x="${W-mr+6}" y="${YH(hmax)+8}" class="axis" fill="#d6336c">${hmax}</text><text x="${W-mr+6}" y="${YH(hmin)}" class="axis">${hmin}</text><text x="${W-mr}" y="24" class="axis" text-anchor="end">tętno</text>`;}
+  for(const e of curA.events){const p=P.find(q=>q.t===e.t);if(p)s+=`<circle cx="${X(e.t)}" cy="${Y(p.v)}" r="8" fill="${EVC[e.type]}" stroke="#fff" stroke-width="2"/>`;}
+  $("chart").innerHTML=s+"</svg>";
+}
+/* odtwarzanie */
+function setupPlay(){
+  const {P}=curA;if(P.length<2)return;const t0=P[0].t,t1=P[P.length-1].t;const rng=$("pRng");let playing=false,last=0,tt=t0;
+  const at=t=>{let lo=0,hi=P.length-1;while(hi-lo>1){const m=(lo+hi)>>1;if(P[m].t<=t)lo=m;else hi=m;}const a=P[lo],b=P[hi];const f=b.t>a.t?Math.min(1,Math.max(0,(t-a.t)/(b.t-a.t))):0;
+    return {lat:a.lat+(b.lat-a.lat)*f,lon:a.lon+(b.lon-a.lon)*f,v:a.v+(b.v-a.v)*f,gap:b.t-a.t>15000};};
+  const upd=()=>{const p=at(tt);$("pInfo").textContent=fmtTs(tt)+" · "+(p.gap?"brak pomiaru":fmtV(p.v));rng.value=Math.round((tt-t0)/(t1-t0)*1000);
+    if(MAP){if(!PLAYM)PLAYM=L.circleMarker([p.lat,p.lon],{radius:9,color:"#000",weight:3,fillColor:"#fff",fillOpacity:1}).addTo(MAP);else PLAYM.setLatLng([p.lat,p.lon]);}};
+  PLAYM=null;rng.oninput=()=>{tt=t0+(t1-t0)*rng.value/1000;upd();};
+  const loop=ts=>{if(!playing)return;const dt=last?ts-last:0;last=ts;tt+=dt*(+$("pSpd").value);if(tt>=t1){tt=t1;playing=false;$("pBtn").textContent="▶";}
+    upd();if(MAP&&PLAYM&&!MAP.getBounds().contains(PLAYM.getLatLng()))MAP.panTo(PLAYM.getLatLng());if(playing)requestAnimationFrame(loop);};
+  $("pBtn").onclick=()=>{playing=!playing;$("pBtn").textContent=playing?"⏸":"▶";last=0;if(tt>=t1)tt=t0;if(playing)requestAnimationFrame(loop);};
+  upd();
+}
+/* ================= dialogi ================= */
+function dlg(html){$("dlgBox").innerHTML=html;$("dlg").classList.add("on");}
+function closeDlg(){$("dlg").classList.remove("on");}
+$("dlg").addEventListener("click",e=>{if(e.target.id==="dlg")closeDlg();});
+
+function editSeg(d,s){
+  const key=String(Math.round(s.t0/1000));const e=(d.edits||{})[key]||{};
+  dlg(`<h2>Korekta odcinka ${fmtTs(s.t0)} – ${fmtTs(s.t1)}</h2>
+   <label class="f">Rodzaj <select id="eC">${["stay","walk","run","bike","drive"].map(c=>`<option value="${c}" ${(e.c||s.c)===c?"selected":""}>${CLS[c].n}</option>`).join("")}</select></label>
+   <label class="f">Połącz z następnym odcinkiem <input id="eM" type="checkbox" ${e.merge?"checked":""}></label>
+   <label class="f" style="display:block">Notatka<br><textarea id="eN" rows="2" style="width:100%">${esc(e.note||"")}</textarea></label>
+   <p class="note">Korekty są przypisane do godziny początku odcinka. Zmiana ustawień analizy może przesunąć granice i wtedy korekta przestanie pasować.</p>
+   <div class="row"><button id="eX">Usuń korektę</button><span class="grow"></span><button id="eQ">Anuluj</button><button id="eOk" class="pri">Zapisz</button></div>`);
+  $("eQ").onclick=closeDlg;
+  $("eX").onclick=async()=>{delete d.edits[key];await saveDay(d);closeDlg();show(d.date);};
+  $("eOk").onclick=async()=>{d.edits=d.edits||{};const c=$("eC").value;const o={};if(c!==s.c||e.c)o.c=c;if($("eM").checked)o.merge=true;const nt=$("eN").value.trim();if(nt)o.note=nt;
+    if(Object.keys(o).length)d.edits[key]=o;else delete d.edits[key];await saveDay(d);closeDlg();show(d.date);};
+}
+function namePlace(s){
+  const ex=placeAt(s.lat,s.lon);
+  dlg(`<h2>Nazwa miejsca</h2><p class="note">Pobyty w tym promieniu będą opisywane tą nazwą (oprócz adresu).</p>
+    <label class="f">Nazwa <input id="nN" type="text" value="${esc(ex?ex.p.name:"")}" placeholder="np. Dom, Praca, Remiza"></label>
+    <label class="f">Promień (m) <input id="nR" type="number" min="10" max="1000" value="${ex?ex.p.r:Math.max(40,Math.round((s.spread||0)*3/10)*10)}"></label>
+    <div class="row"><span class="grow"></span><button id="nQ">Anuluj</button><button id="nOk" class="pri">Zapisz</button></div>`);
+  $("nQ").onclick=closeDlg;
+  $("nOk").onclick=async()=>{const name=$("nN").value.trim();const r=+$("nR").value;if(!name||!(r>0))return;
+    if(ex){ex.p.name=name;ex.p.r=r;}else PLACES.push({id:Date.now(),name,lat:s.lat,lon:s.lon,r});
+    await savePlaces();closeDlg();show(cur);};
+}
+$("bPlaces").onclick=()=>{
+  dlg(`<h2>Moje miejsca</h2>${PLACES.length?`<table><tr><th>Nazwa</th><th>Promień</th><th></th></tr>${PLACES.map((p,i)=>`<tr><td>${esc(p.name)}<br><span class="note">${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}</span></td><td>${p.r} m</td><td><button class="sm" data-i="${i}">Usuń</button></td></tr>`).join("")}</table>`:'<p class="note">Brak. Miejsce dodaje się przyciskiem „Nazwij miejsce” przy pobycie.</p>'}
+   <div class="row" style="margin-top:10px"><span class="grow"></span><button id="plQ" class="pri">Zamknij</button></div>`);
+  $("plQ").onclick=closeDlg;
+  $("dlgBox").querySelectorAll("[data-i]").forEach(b=>b.onclick=async()=>{PLACES.splice(+b.dataset.i,1);await savePlaces();$("bPlaces").onclick();if(cur)show(cur);});
+};
+$("bSet").onclick=()=>{
+  const f=(id,l,step,u)=>`<label class="f">${l} <span><input id="s_${id}" type="number" step="${step}" value="${S[id]}"> ${u}</span></label>`;
+  dlg(`<h2>Ustawienia analizy</h2>
+   <b>Dokładność</b>
+   ${f("acc","Odrzucaj pomiary z dokładnością gorszą niż","1","m")}
+   <b>Pobyty</b>
+   ${f("rad","Promień miejsca","5","m")}${f("stay","Minimalny czas pobytu","0.5","min")}
+   <b>Rodzaj ruchu</b>
+   ${f("haltV","Zatrzymanie poniżej","0.1","km/h")}${f("walk","Chód poniżej","0.5","km/h")}${f("run","Bieg poniżej","0.5","km/h")}${f("min","Najkrótszy odcinek ruchu","5","s")}
+   <b>Zdarzenia (domyślnie wg iSharing)</b>
+   ${f("brake","Hamowanie: spadek o więcej niż","0.1","km/h w 1 s")}${f("accel","Przyspieszenie: wzrost o więcej niż","0.1","km/h w 1 s")}
+   ${f("evMin","Liczone od prędkości","0.1","km/h")}${f("corner","Zakręt: przyspieszenie boczne od","0.1","m/s²")}${f("high","Duża prędkość powyżej","1","km/h")}
+   <p class="note">iSharing: hamowanie > 7 mph/s (11,3 km/h w 1 s), przyspieszenie > 8 mph/s (12,9 km/h w 1 s), oba od 15 mph (24 km/h); duża prędkość > 130 km/h.</p>
+   <div class="row"><button id="sD">Domyślne</button><span class="grow"></span><button id="sQ">Anuluj</button><button id="sOk" class="pri">Zapisz</button></div>`);
+  $("sQ").onclick=closeDlg;
+  $("sD").onclick=()=>{for(const k in DEF){const el=$("s_"+k);if(el)el.value=DEF[k];}};
+  $("sOk").onclick=async()=>{for(const k in DEF){const el=$("s_"+k);if(el&&isFinite(+el.value))S[k]=+el.value;}
+    if(!(S.haltV<S.walk&&S.walk<S.run)){msg("Progi muszą rosnąć: zatrzymanie < chód < bieg.",true);return;}
+    saveSet();ANA.clear();closeDlg();msg("Przeliczanie podsumowań…");
+    for(const k of Object.keys(INDEX.days)){const d=await loadDay(k);if(d)INDEX.days[k]=summary(d);}
+    if(IDB)await kvSet("index",{days:INDEX.days});msg("");refreshDays(cur);};
+};
+$("bHelp").onclick=()=>{
+  dlg(`<h2>Instrukcja</h2><div class="help">
+  <b>1. GPS Logger (telefon, nagrywanie w tle)</b><ol>
+   <li>Zainstalować GPSLogger (autor: mendhak) z F-Droid (f-droid.org) lub z GitHub (github.com/mendhak/gpslogger).</li>
+   <li>Formaty zapisu: <b>CSV</b> (zawiera dokładność w metrach i prędkość z odbiornika) i/lub GPX.</li>
+   <li>Interwał: 1 s podczas jazdy (wymagany do hamowań/przyspieszeń), 5 s na co dzień – dwa profile.</li>
+   <li>Źródło: tylko satelity GPS (bez lokalizacji sieciowej).</li>
+   <li>Samsung: Ustawienia → Aplikacje → GPS Logger → Bateria → <b>Bez ograniczeń</b>; lokalizacja: „Zezwalaj zawsze”, dokładna.</li>
+   <li>Nowy plik codziennie; pliki dnia zaimportować tutaj.</li></ol>
+  <b>2. Garmin (Instinct 2X Solar)</b><ol>
+   <li>System → Zapis danych: <b>co sekundę</b>.</li>
+   <li>Satelity: wszystkie systemy + wielopasmowy.</li>
+   <li>Auto Pause: <b>wyłączone</b> (inaczej znikają postoje).</li>
+   <li>Eksport: Garmin Connect w przeglądarce → aktywność → ⚙ → Eksportuj oryginał (ZIP z FIT). ZIP można zaimportować bez rozpakowywania.</li></ol>
+  <b>Automatycznie przez Dysk Google</b><ol>
+   <li>GPS Logger → Ustawienia → Automatyczne wysyłanie (Auto send) → Google Drive: zalogować się, włączyć, ustawić częstotliwość (np. co 60 min) i nazwę folderu. Tę samą nazwę wpisać tutaj w „⚙ Dysk”.</li>
+   <li>Aplikacja przy otwarciu (lub przyciskiem „Synchronizuj”) pobiera z tego folderu nowe i zmienione pliki. Ten sam plik pobrany kilka razy nie dubluje punktów.</li>
+   <li>Kopia danych i eksporty trafiają do folderu „Oś czasu” na Dysku.</li>
+   <li>Konfiguracja jednorazowa: hosting https:// i identyfikator klienta OAuth – opis w pliku README.md dołączonym do aplikacji.</li></ol>
+  <b>3. Jak liczone są wyniki</b><ol>
+   <li>Pobyt: wszystkie pomiary w promieniu ${S.rad} m przez ≥ ${S.stay} min; czas od pierwszego do ostatniego pomiaru w miejscu.</li>
+   <li>Położenie pobytu: mediana najdokładniejszej połowy pomiarów; „±” to typowy rozrzut.</li>
+   <li>Adres: OpenStreetMap (Nominatim); „m od budynku” to odległość do punktu adresowego. Przy budynkach blisko siebie możliwy sąsiedni numer.</li>
+   <li>Dystans: całka z prędkości z odbiornika (nie suma skoków pozycji).</li>
+   <li>Gdy jest ślad z zegarka, w tym czasie zastępuje on telefon.</li>
+   <li>Ocena przejazdu (umowna): 100 − 10×hamowanie − 8×przyspieszenie − 5×zakręt − 2×min powyżej ${S.high} km/h.</li></ol>
+  <b>4. Dane</b><p class="note">Dane są zapisane tylko w tej przeglądarce. Wyczyszczenie danych przeglądarki je usuwa – regularnie robić kopię (przycisk „Kopia”). Adresy pobierane są z serwerów OpenStreetMap (wysyłane są współrzędne postojów).</p>
+  </div><div class="row"><span class="grow"></span><button id="hQ" class="pri">Zamknij</button></div>`);
+  $("hQ").onclick=closeDlg;
+};
+function askDelete(k){
+  dlg(`<h2>Usunąć ${esc(dayLabel(k))}?</h2><p class="note">Ślad, korekty i podsumowanie tego dnia zostaną trwale usunięte z telefonu.</p>
+   <div class="row"><span class="grow"></span><button id="dQ">Anuluj</button><button id="dOk" class="pri">Usuń</button></div>`);
+  $("dQ").onclick=closeDlg;
+  $("dOk").onclick=async()=>{try{if(IDB)await kvDel("d-"+k);delete INDEX.days[k];CACHE.delete(k);ANA.delete(k);if(IDB)await kvSet("index",{days:INDEX.days});}catch(e){}
+    closeDlg();cur=null;refreshDays();};
+}
+/* ================= eksport ================= */
+function csvCell(x){x=x==null?"":String(x);return /[;"\n]/.test(x)?'"'+x.replace(/"/g,'""')+'"':x;}
+const dec=(v,n)=>v==null||!isFinite(v)?"":v.toFixed(n).replace(".",",");
+async function exportCSV(k,toDrive){
+  const d=await loadDay(k);const A=analyzeDay(d);const rows=[["data","od","do","czas_s","rodzaj","miejsce","adres_z","adres_do","dystans_km","sr_kmh","maks_kmh","hamowania","przyspieszenia","zakrety","ocena","tetno_sr","lat","lon","lat_do","lon_do","notatka"]];
+  msg("Pobieranie adresów do eksportu…");
+  for(const s of A.segs){const dur=(s.t1-s.t0)/1000;const a=s.lat!=null?await geocode(s.lat,s.lon):null;const b=s.lat2!=null&&s.c!=="stay"?await geocode(s.lat2,s.lon2):null;
+    const pl=s.lat!=null?placeAt(s.lat,s.lon):null;const e=s.ev||{};
+    rows.push([k,fmtTs(s.t0),fmtTs(s.t1),Math.round(dur),CLS[s.c].n,pl?pl.p.name:"",a?addrTxt(a):"",b?addrTxt(b):"",dec((s.d||0)/1000,3),
+      s.c!=="stay"&&!s.gap&&dur>0?dec(s.d/dur*3.6,1):"",s.c!=="stay"?dec(s.max,1):"",e.brake??"",e.accel??"",e.corner??"",s.score??"",dec(s.hr,0),
+      dec(s.lat,6),dec(s.lon,6),s.c!=="stay"?dec(s.lat2,6):"",s.c!=="stay"?dec(s.lon2,6):"",s.note||""]);}
+  rows.push([]);rows.push(["zdarzenie","godzina","m/s2","g","km/h w 1 s","v_przed","v_po","lat","lon"]);
+  for(const e of A.events)rows.push([EVN[e.type],fmtTs(e.t),dec(e.ms2,2),dec(e.g,3),dec(e.kmhs,1),dec(e.v0,1),dec(e.v1,1),dec(e.lat,6),dec(e.lon,6)]);
+  await out(`os-czasu-${k}.csv`,"\ufeff"+rows.map(r=>r.map(csvCell).join(";")).join("\r\n"),"text/csv",toDrive);
+}
+async function exportGPX(k,toDrive){
+  const d=await loadDay(k);const A=analyzeDay(d);
+  let g=`<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Os czasu" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>${k}</name><trkseg>\n`;
+  for(const p of A.P)g+=`<trkpt lat="${p.lat.toFixed(7)}" lon="${p.lon.toFixed(7)}">${p.ele!=null?`<ele>${p.ele.toFixed(1)}</ele>`:""}<time>${new Date(p.t).toISOString()}</time><extensions><speed>${(p.vr/3.6).toFixed(2)}</speed>${p.hr!=null?`<hr>${p.hr}</hr>`:""}</extensions></trkpt>\n`;
+  g+=`</trkseg></trk></gpx>`;await out(`os-czasu-${k}.gpx`,g,"application/gpx+xml",toDrive);
+}
+/* ================= kopia zapasowa ================= */
+$("bBak").onclick=()=>{
+  dlg(`<h2>Kopia zapasowa</h2><p class="note">Plik zawiera wszystkie dni, korekty i miejsca. Przechowywać poza telefonem (np. na dysku). Odtworzenie łączy dane z kopią.</p>
+   <div class="row"><button id="bED" class="pri">Kopia na Dysk Google</button><button id="bRD">Odtwórz z Dysku</button></div>
+   <div class="row" style="margin-top:8px"><button id="bE">Kopia do pliku</button><label class="btn" for="bF">Odtwórz z pliku</label><input id="bF" type="file" accept=".json"><span class="grow"></span><button id="bQ">Zamknij</button></div><p id="bI" class="note"></p>`);
+  $("bQ").onclick=closeDlg;
+  $("bE").onclick=async()=>{$("bI").textContent="Przygotowanie…";download(`os-czasu-kopia-${dateKey(Date.now())}.json`,await buildBackup(),"application/json");$("bI").textContent="Zapisano plik.";};
+  $("bED").onclick=async()=>{$("bI").textContent="Wysyłanie na Dysk…";try{await driveBackup(true);$("bI").textContent="Kopia zapisana na Dysku Google ("+fmtTs(Date.now())+").";}catch(e){$("bI").textContent="Błąd: "+e.message;}};
+  $("bRD").onclick=async()=>{$("bI").textContent="Pobieranie kopii z Dysku…";try{const t=await driveGetBackup();await restoreBackup(t);$("bI").textContent="Odtworzono z Dysku.";}catch(e){$("bI").textContent="Błąd: "+e.message;}};
+  $("bF").onchange=async ev=>{const f=ev.target.files[0];if(!f)return;try{await restoreBackup(await f.text());$("bI").textContent="Odtworzono z pliku.";}catch(e){$("bI").textContent="Błąd: "+e.message;}};
+};
+async function buildBackup(){const days={};
+  for(const k of Object.keys(INDEX.days)){const d=await loadDay(k);if(!d)continue;const o={edits:d.edits||{}};
+    for(const s of ["phone","watch"]){if(!d[s])continue;o[s]={};for(const f of FIELDS)o[s][f]=Array.from(d[s][f],x=>isNaN(x)?null:x);}days[k]=o;}
+  const set=Object.assign({},S);delete set.clientId;
+  return JSON.stringify({app:"os-czasu",v:1,created:new Date().toISOString(),places:PLACES,settings:set,days});}
+async function restoreBackup(txt){const o=JSON.parse(txt);if(o.app!=="os-czasu")throw new Error("to nie jest kopia tej aplikacji");
+  for(const p of o.places||[])if(!PLACES.some(q=>q.id===p.id))PLACES.push(p);await savePlaces();
+  for(const k in o.days){const b=o.days[k];const toC=c=>c?c.t.map((t,i)=>({t,lat:c.lat[i],lon:c.lon[i],sp:c.sp[i],acc:c.acc[i],hr:c.hr[i],ele:c.ele[i]})):[];
+    const ex=(await loadDay(k))||{edits:{}};
+    await saveDay({date:k,edits:Object.assign({},b.edits,ex.edits),phone:toCols(mergePts(fromCols(ex.phone,"phone"),toC(b.phone))),watch:toCols(mergePts(fromCols(ex.watch,"watch"),toC(b.watch)))});}
+  refreshDays(cur);}
+/* ================= zestawienie ================= */
+$("bSum").onclick=()=>{
+  const V=$("sumView");if(V.style.display!=="none"){V.style.display="none";$("view").style.display="";return;}
+  const ks=Object.keys(INDEX.days).sort();const months=[...new Set(ks.map(k=>k.slice(0,7)))].reverse();
+  if(!months.length){msg("Brak danych do zestawienia.");return;}
+  V.style.display="";$("view").style.display="none";
+  const render=m=>{const rows=ks.filter(k=>k.startsWith(m));const T={dr:0,wk:0,rn:0,bk:0,tdr:0,trips:0,b:0,a:0,c:0,max:null};
+    let h=`<div class="card"><div class="row"><b class="grow">Kalendarz</b><select id="mSel">${months.map(x=>`<option value="${x}" ${x===m?"selected":""}>${new Date(+x.slice(0,4),+x.slice(5)-1,1).toLocaleDateString("pl-PL",{month:"long",year:"numeric"})}</option>`).join("")}</select><button class="sm" id="mCsv">CSV</button><button class="sm" id="mX">Zamknij</button></div>
+     ${calendarHTML(m)}<div class="legend"><span><span class="sw" style="background:${ccol("drive")}"></span>jazda</span><span><span class="sw" style="background:${ccol("walk")}"></span>chód i bieg</span><span>dotknięcie dnia otwiera oś czasu</span></div>
+     <div class="scroll"><table><tr><th>Dzień</th><th>Jazda km</th><th>czas</th><th>przejazdy</th><th>maks.</th><th>Chód km</th><th>Bieg km</th><th><span class="dot" style="background:${EVC.brake}"></span></th><th><span class="dot" style="background:${EVC.accel}"></span></th><th><span class="dot" style="background:${EVC.corner}"></span></th></tr>`;
+    const rowsOut=[["dzien","jazda_km","jazda_czas_min","przejazdy","maks_kmh","chod_km","bieg_km","rower_km","hamowania","przyspieszenia","zakrety"]];
+    for(const k of rows){const s=INDEX.days[k];const km=c=>(s.km&&s.km[c]||0)/1000;const t=c=>(s.t&&s.t[c]||0);
+      T.dr+=km("drive");T.wk+=km("walk");T.rn+=km("run");T.bk+=km("bike");T.tdr+=t("drive");T.trips+=s.trips||0;T.b+=s.ev?s.ev.brake:0;T.a+=s.ev?s.ev.accel:0;T.c+=s.ev?s.ev.corner:0;if(s.max!=null&&(T.max==null||s.max>T.max))T.max=s.max;
+      h+=`<tr data-k="${k}" style="cursor:pointer"><td>${k.slice(8)}.${k.slice(5,7)}</td><td>${nf1.format(km("drive"))}</td><td>${fmtDur(t("drive"))}</td><td>${s.trips||0}</td><td>${fmtV(s.max)}</td><td>${nf1.format(km("walk"))}</td><td>${nf1.format(km("run"))}</td><td>${s.ev?s.ev.brake:0}</td><td>${s.ev?s.ev.accel:0}</td><td>${s.ev?s.ev.corner:0}</td></tr>`;
+      rowsOut.push([k,dec(km("drive"),2),Math.round(t("drive")/60),s.trips||0,dec(s.max,0),dec(km("walk"),2),dec(km("run"),2),dec(km("bike"),2),s.ev?s.ev.brake:0,s.ev?s.ev.accel:0,s.ev?s.ev.corner:0]);}
+    h+=`<tr><th>Razem</th><th>${nf1.format(T.dr)}</th><th>${fmtDur(T.tdr)}</th><th>${T.trips}</th><th>${fmtV(T.max)}</th><th>${nf1.format(T.wk)}</th><th>${nf1.format(T.rn)}</th><th>${T.b}</th><th>${T.a}</th><th>${T.c}</th></tr></table></div>
+      <p class="note">Zestawienie pomocnicze (nie stanowi ewidencji przebiegu pojazdu). Kliknięcie dnia otwiera jego oś czasu.</p></div>`;
+    V.innerHTML=h;$("mSel").onchange=e=>render(e.target.value);$("mX").onclick=()=>{V.style.display="none";$("view").style.display="";};
+    $("mCsv").onclick=()=>out(`zestawienie-${m}.csv`,"\ufeff"+rowsOut.map(r=>r.map(csvCell).join(";")).join("\r\n"),"text/csv",driveReady());
+    V.querySelectorAll("tr[data-k],.cd[data-k]").forEach(tr=>tr.onclick=()=>{V.style.display="none";$("view").style.display="";cur=tr.dataset.k;$("daySel").value=cur;show(cur);});};
+  render(months[0]);
+};
+
+/* ================= Dysk Google ================= */
+const SCOPES="https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file";
+const DDEF={clientId:"",folder:"GPSLogger for Android",syncAuto:true,bakAuto:true};
+let D=Object.assign({},DDEF);try{Object.assign(D,JSON.parse(localStorage.getItem("osczasu-drive")||"{}"));}catch(e){}
+const saveD=()=>{try{localStorage.setItem("osczasu-drive",JSON.stringify(D));}catch(e){}};
+let TOK=null;try{const t=JSON.parse(localStorage.getItem("osczasu-tok")||"null");if(t&&t.exp>Date.now()+60000)TOK=t;}catch(e){}
+const driveReady=()=>!!D.clientId;
+const tokOk=()=>TOK&&TOK.exp>Date.now()+60000;
+function getToken(interactive){
+  return new Promise((res,rej)=>{
+    if(tokOk())return res(TOK.access_token);
+    if(!D.clientId)return rej(new Error("brak identyfikatora klienta OAuth (przycisk Dysk)"));
+    if(!(window.google&&google.accounts&&google.accounts.oauth2))return rej(new Error("logowanie Google niedostępne (brak internetu lub strona nie przez https://)"));
+    if(!interactive)return rej(new Error("wymagane zalogowanie – przycisk „Synchronizuj”"));
+    const tc=google.accounts.oauth2.initTokenClient({client_id:D.clientId,scope:SCOPES,
+      callback:r=>{if(r.error)return rej(new Error(r.error_description||r.error));
+        TOK={access_token:r.access_token,exp:Date.now()+(+r.expires_in||3600)*1000};try{localStorage.setItem("osczasu-tok",JSON.stringify(TOK));}catch(e){}driveUI();res(TOK.access_token);},
+      error_callback:e=>rej(new Error(e&&e.type==="popup_closed"?"okno logowania zamknięte":(e&&(e.message||e.type))||"logowanie przerwane"))});
+    tc.requestAccessToken({prompt:""});
+  });
+}
+async function gapi(url,opt={},interactive){
+  const tok=await getToken(interactive);
+  const r=await fetch(url.startsWith("http")?url:"https://www.googleapis.com/drive/v3/"+url,Object.assign({},opt,{headers:Object.assign({Authorization:"Bearer "+tok},opt.headers||{})}));
+  if(r.status===401){TOK=null;try{localStorage.removeItem("osczasu-tok");}catch(e){}driveUI();throw new Error("sesja Google wygasła – zaloguj ponownie");}
+  if(!r.ok){let t="";try{t=(await r.json()).error.message;}catch(e){}throw new Error("Dysk: "+r.status+(t?" – "+t:""));}
+  return r;
+}
+const qs=s=>"'"+String(s).replace(/\\/g,"\\\\").replace(/'/g,"\\'")+"'";
+async function findFolder(name,parent,interactive){
+  const q=`name=${qs(name)} and mimeType='application/vnd.google-apps.folder' and trashed=false`+(parent?` and ${qs(parent)} in parents`:"");
+  const r=await(await gapi("files?q="+encodeURIComponent(q)+"&fields=files(id,name,modifiedTime)&orderBy=modifiedTime desc",{},interactive)).json();
+  return r.files&&r.files[0]?r.files[0].id:null;
+}
+async function ensureFolder(name,parent,interactive){
+  const id=await findFolder(name,parent,interactive);if(id)return id;
+  const meta={name,mimeType:"application/vnd.google-apps.folder"};if(parent)meta.parents=[parent];
+  const r=await(await gapi("files?fields=id",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(meta)},interactive)).json();return r.id;
+}
+async function listFiles(folderId,interactive){
+  let out=[],tok="";
+  do{const q=`${qs(folderId)} in parents and trashed=false`;
+    const r=await(await gapi("files?q="+encodeURIComponent(q)+"&pageSize=1000&fields=nextPageToken,files(id,name,modifiedTime,size,mimeType)"+(tok?"&pageToken="+tok:""),{},interactive)).json();
+    out=out.concat(r.files||[]);tok=r.nextPageToken||"";}while(tok);
+  return out;
+}
+async function uploadFile(name,data,type,folderId,interactive){
+  const blob=data instanceof Blob?data:new Blob([data],{type});
+  const q=`name=${qs(name)} and ${qs(folderId)} in parents and trashed=false`;
+  const ex=await(await gapi("files?q="+encodeURIComponent(q)+"&fields=files(id)",{},interactive)).json();
+  if(ex.files&&ex.files[0]){await gapi(`https://www.googleapis.com/upload/drive/v3/files/${ex.files[0].id}?uploadType=media`,{method:"PATCH",headers:{"Content-Type":type},body:blob},interactive);return ex.files[0].id;}
+  const fd=new FormData();fd.append("metadata",new Blob([JSON.stringify({name,parents:[folderId]})],{type:"application/json"}));fd.append("file",blob);
+  const r=await(await gapi("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",{method:"POST",body:fd},interactive)).json();return r.id;
+}
+let syncing=false;
+async function driveSync(interactive){
+  if(syncing)return;syncing=true;driveUI();
+  try{
+    const fid=await findFolder(D.folder,null,interactive);
+    if(!fid){const all=await(await gapi("files?q="+encodeURIComponent("mimeType='application/vnd.google-apps.folder' and trashed=false")+"&pageSize=200&fields=files(name)",{},interactive)).json();
+      const sug=(all.files||[]).map(f=>f.name).filter(n=>/gps|log|trac/i.test(n)).slice(0,8);
+      throw new Error(`nie znaleziono folderu „${D.folder}” na Dysku`+(sug.length?`. Podobne: ${sug.join(", ")}`:""));}
+    const files=(await listFiles(fid,interactive)).filter(f=>/\.(csv|gpx|kml|fit|zip)$/i.test(f.name)).sort((a,b)=>a.name.localeCompare(b.name));
+    const st=(IDB&&await kvGet("sync"))||{};
+    const todo=files.filter(f=>st[f.id]!==f.modifiedTime);
+    let keys=[],n=0,errs=[];
+    for(let i=0;i<todo.length;i++){const f=todo[i];msg(`Dysk: pobieranie ${i+1}/${todo.length} – ${f.name}`);
+      const buf=await(await gapi(`files/${f.id}?alt=media`,{},interactive)).arrayBuffer();
+      const r=await importBuffers([{name:f.name,buf}]);keys=keys.concat(r.keys);n+=r.n;errs=errs.concat(r.errs);
+      st[f.id]=f.modifiedTime;if(IDB)await kvSet("sync",st);}
+    D.lastSync=Date.now();saveD();
+    msg(todo.length?`Dysk: przetworzono plików ${todo.length}, punktów ${nf0.format(n)}.`+(errs.length?" Problemy: "+errs.join(" · "):""):"Dysk: brak nowych plików.",!!errs.length);
+    if(keys.length){keys.sort();refreshDays(keys[keys.length-1]);autoBackup();}
+  }catch(e){msg("Dysk: "+e.message,true);}
+  finally{syncing=false;driveUI();}
+}
+async function appFolder(interactive){return ensureFolder("Oś czasu",null,interactive);}
+async function driveBackup(interactive){
+  const fid=await appFolder(interactive);await uploadFile("os-czasu-kopia.json",await buildBackup(),"application/json",fid,interactive);
+  D.lastBak=Date.now();saveD();driveUI();
+}
+async function driveGetBackup(){
+  const fid=await findFolder("Oś czasu",null,true);if(!fid)throw new Error("brak folderu „Oś czasu” na Dysku");
+  const q=`name='os-czasu-kopia.json' and ${qs(fid)} in parents and trashed=false`;
+  const r=await(await gapi("files?q="+encodeURIComponent(q)+"&fields=files(id)",{},true)).json();if(!r.files||!r.files[0])throw new Error("brak pliku kopii na Dysku");
+  return await(await gapi(`files/${r.files[0].id}?alt=media`,{},true)).text();
+}
+let bakTimer=null;
+function autoBackup(){if(!driveReady()||!D.bakAuto||!tokOk())return;clearTimeout(bakTimer);
+  bakTimer=setTimeout(()=>driveBackup(false).catch(e=>msg("Kopia na Dysk: "+e.message,true)),4000);}
+/* zapis eksportu: plik w telefonie albo Dysk (folder „Oś czasu/Eksport”) */
+async function out(name,data,type,toDrive){
+  if(!toDrive){download(name,data,type);msg("Zapisano "+name+".");return;}
+  msg("Wysyłanie "+name+" na Dysk…");const root=await appFolder(true);const ex=await ensureFolder("Eksport",root,true);
+  await uploadFile(name,data,type,ex,true);msg("Zapisano na Dysku: Oś czasu/Eksport/"+name);
+}
+function driveUI(){const b=$("bDrv");if(!b)return;
+  b.textContent=syncing?"Dysk ⟳…":(driveReady()?(tokOk()?"Synchronizuj":"Dysk: zaloguj"):"Dysk Google");
+  const i=$("drvInfo");if(i)i.textContent=driveReady()?((D.lastSync?"Ostatnia synchronizacja: "+new Date(D.lastSync).toLocaleString("pl-PL"):"Jeszcze nie synchronizowano")+(D.lastBak?" · kopia: "+new Date(D.lastBak).toLocaleString("pl-PL"):"")):"";}
+$("bDrv").onclick=()=>{if(!driveReady()){driveDlg();return;}driveSync(true);};
+$("bDrvSet").onclick=()=>driveDlg();
+function driveDlg(){
+  dlg(`<h2>Dysk Google</h2>
+   <p class="note">Aplikacja pobiera nowe pliki GPS Loggera z podanego folderu i zapisuje kopię oraz eksporty w folderze „Oś czasu”. Wymaga identyfikatora klienta OAuth (instrukcja: przycisk „Instrukcja”) i strony otwartej przez https://.</p>
+   <label class="f" style="display:block">Identyfikator klienta OAuth<br><input id="gC" type="text" style="width:100%" value="${esc(D.clientId)}" placeholder="…apps.googleusercontent.com"></label>
+   <label class="f" style="display:block">Folder z plikami GPS Loggera<br><input id="gF" type="text" style="width:100%" value="${esc(D.folder)}"></label>
+   <label class="f">Synchronizuj przy otwarciu (gdy zalogowano) <input id="gS" type="checkbox" ${D.syncAuto?"checked":""}></label>
+   <label class="f">Automatyczna kopia na Dysk po zmianach <input id="gB" type="checkbox" ${D.bakAuto?"checked":""}></label>
+   <p class="note">Adres tej strony do wpisania w Google Cloud jako „Authorized JavaScript origin”: <b>${esc(location.origin)}</b>${location.protocol!=="https:"?" – <b>strona nie jest otwarta przez https://, logowanie Google nie zadziała</b>":""}</p>
+   <div class="row"><button id="gX">Wyloguj</button><button id="gR">Pobierz wszystko ponownie</button><span class="grow"></span><button id="gQ">Anuluj</button><button id="gOk" class="pri">Zapisz i połącz</button></div>`);
+  $("gQ").onclick=closeDlg;
+  $("gX").onclick=()=>{try{if(TOK&&window.google&&google.accounts)google.accounts.oauth2.revoke(TOK.access_token,()=>{});}catch(e){}TOK=null;try{localStorage.removeItem("osczasu-tok");}catch(e){}driveUI();closeDlg();msg("Wylogowano z Google.");};
+  $("gR").onclick=async()=>{if(IDB)await kvSet("sync",{});closeDlg();driveSync(true);};
+  $("gOk").onclick=()=>{D.clientId=$("gC").value.trim();D.folder=$("gF").value.trim()||DDEF.folder;D.syncAuto=$("gS").checked;D.bakAuto=$("gB").checked;saveD();closeDlg();driveUI();if(D.clientId)driveSync(true);};
+}
+
+/* ================= kalendarz ================= */
+function calendarHTML(m){
+  const [y,mo]=m.split("-").map(Number);const first=new Date(y,mo-1,1);const nd=new Date(y,mo,0).getDate();
+  const off=(first.getDay()+6)%7;let h=`<div class="cal">${["Pn","Wt","Śr","Cz","Pt","So","Nd"].map(d=>`<div class="cw">${d}</div>`).join("")}`;
+  for(let i=0;i<off;i++)h+=`<div></div>`;
+  const today=dateKey(Date.now());
+  for(let d=1;d<=nd;d++){const k=`${y}-${pad(mo)}-${pad(d)}`;const s=INDEX.days[k];
+    const dr=s&&s.km?(s.km.drive||0):0,ft=s&&s.km?((s.km.walk||0)+(s.km.run||0)):0;
+    h+=`<div class="cd${s?" has":""}${k===today?" today":""}" ${s?`data-k="${k}"`:""}><div class="cn">${d}</div>${s?`<div class="ck">${nf1.format((s.dist||0)/1000)} km</div>
+      <div class="cb"><span style="flex:${dr||0.0001};background:${ccol("drive")}"></span><span style="flex:${ft||0.0001};background:${ccol("walk")}"></span></div>`:""}</div>`;}
+  return h+"</div>";
+}
+/* ================= aplikacja (PWA) ================= */
+if("serviceWorker" in navigator&&location.protocol==="https:"){navigator.serviceWorker.register("sw.js").catch(()=>{});}
+(async()=>{await initStore();driveUI();
+  if(driveReady()&&D.syncAuto&&tokOk())driveSync(false);})();
+setInterval(driveUI,60000);
+</script>
+</body></html>
