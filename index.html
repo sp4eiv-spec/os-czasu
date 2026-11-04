@@ -947,14 +947,25 @@ async function uploadFile(name,data,type,folderId,interactive){
   const r=await(await gapi("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",{method:"POST",body:fd},interactive)).json();return r.id;
 }
 let syncing=false;
+/* pliki z folderu i jego podfolderów (do 3 poziomów); gdy jest FIT, pomija GPX/KML/TCX o tej samej nazwie */
+async function listTree(fid,interactive,depth){
+  const items=await listFiles(fid,interactive);let out=[];
+  for(const f of items){
+    if(f.mimeType==="application/vnd.google-apps.folder"){if(depth<3)out=out.concat(await listTree(f.id,interactive,depth+1));}
+    else out.push(f);}
+  return out;
+}
 async function driveSync(interactive){
   if(syncing)return;syncing=true;driveUI();
   try{
-    const fid=await findFolder(D.folder,null,interactive);
-    if(!fid){const all=await(await gapi("files?q="+encodeURIComponent("mimeType='application/vnd.google-apps.folder' and trashed=false")+"&pageSize=200&fields=files(name)",{},interactive)).json();
-      const sug=(all.files||[]).map(f=>f.name).filter(n=>/gps|log|trac/i.test(n)).slice(0,8);
-      throw new Error(`nie znaleziono folderu „${D.folder}” na Dysku`+(sug.length?`. Podobne: ${sug.join(", ")}`:""));}
-    const files=(await listFiles(fid,interactive)).filter(f=>/\.(csv|gpx|kml|fit|zip)$/i.test(f.name)).sort((a,b)=>a.name.localeCompare(b.name));
+    const names=D.folder.split(",").map(x=>x.trim()).filter(Boolean);let files=[],missing=[];
+    for(const nm of names){const fid=await findFolder(nm,null,interactive);if(!fid){missing.push(nm);continue;}files=files.concat(await listTree(fid,interactive,0));}
+    if(!files.length&&missing.length){const all=await(await gapi("files?q="+encodeURIComponent("mimeType='application/vnd.google-apps.folder' and trashed=false")+"&pageSize=200&fields=files(name)",{},interactive)).json();
+      const sug=(all.files||[]).map(f=>f.name).filter(n=>/gps|log|trac|health|sync|garmin/i.test(n)).slice(0,8);
+      throw new Error(`nie znaleziono folderu „${missing.join(", ")}” na Dysku`+(sug.length?`. Podobne: ${sug.join(", ")}`:""));}
+    files=files.filter(f=>/\.(csv|gpx|kml|fit|zip)$/i.test(f.name));
+    const fitStems=new Set(files.filter(f=>/\.fit$/i.test(f.name)).map(f=>f.name.replace(/\.[^.]+$/,"").toLowerCase()));
+    files=files.filter(f=>/\.(fit|zip|csv)$/i.test(f.name)||!fitStems.has(f.name.replace(/\.[^.]+$/,"").toLowerCase())).sort((a,b)=>a.name.localeCompare(b.name));
     const st=(IDB&&await kvGet("sync"))||{};
     const todo=files.filter(f=>st[f.id]!==f.modifiedTime);
     let keys=[],n=0,errs=[];
@@ -963,7 +974,7 @@ async function driveSync(interactive){
       const r=await importBuffers([{name:f.name,buf}]);keys=keys.concat(r.keys);n+=r.n;errs=errs.concat(r.errs);
       st[f.id]=f.modifiedTime;if(IDB)await kvSet("sync",st);}
     D.lastSync=Date.now();saveD();
-    msg(todo.length?`Dysk: przetworzono plików ${todo.length}, punktów ${nf0.format(n)}.`+(errs.length?" Problemy: "+errs.join(" · "):""):"Dysk: brak nowych plików.",!!errs.length);
+    msg((todo.length?`Dysk: przetworzono plików ${todo.length}, punktów ${nf0.format(n)}.`:"Dysk: brak nowych plików.")+(missing.length?` Brak folderu: ${missing.join(", ")}.`:"")+(errs.length?" Problemy: "+errs.join(" · "):""),!!errs.length);
     if(keys.length){keys.sort();refreshDays(keys[keys.length-1]);autoBackup();}
   }catch(e){msg("Dysk: "+e.message,true);}
   finally{syncing=false;driveUI();}
@@ -997,7 +1008,7 @@ function driveDlg(){
   dlg(`<h2>Dysk Google</h2>
    <p class="note">Aplikacja pobiera nowe pliki GPS Loggera z podanego folderu i zapisuje kopię oraz eksporty w folderze „Oś czasu”. Wymaga identyfikatora klienta OAuth (instrukcja: przycisk „Instrukcja”) i strony otwartej przez https://.</p>
    <label class="f" style="display:block">Identyfikator klienta OAuth<br><input id="gC" type="text" style="width:100%" value="${esc(D.clientId)}" placeholder="…apps.googleusercontent.com"></label>
-   <label class="f" style="display:block">Folder z plikami GPS Loggera<br><input id="gF" type="text" style="width:100%" value="${esc(D.folder)}"></label>
+   <label class="f" style="display:block">Foldery z nagraniami (kilka – oddziel przecinkiem; podfoldery są przeszukiwane)<br><input id="gF" type="text" style="width:100%" value="${esc(D.folder)}"></label>
    <label class="f">Synchronizuj przy otwarciu (gdy zalogowano) <input id="gS" type="checkbox" ${D.syncAuto?"checked":""}></label>
    <label class="f">Automatyczna kopia na Dysk po zmianach <input id="gB" type="checkbox" ${D.bakAuto?"checked":""}></label>
    <p class="note">Adres tej strony do wpisania w Google Cloud jako „Authorized JavaScript origin”: <b>${esc(location.origin)}</b>${location.protocol!=="https:"?" – <b>strona nie jest otwarta przez https://, logowanie Google nie zadziała</b>":""}</p>
