@@ -600,7 +600,7 @@ async function show(k,keepView){
 }
 function initMap(){
   if(!window.L){$("map").innerHTML='<p class="note" style="padding:12px">Mapa niedostępna – biblioteka mapy nie wczytała się (brak internetu?). Oś czasu działa.</p>';return;}
-  MAP=L.map("map",{preferCanvas:true,zoomControl:true});
+  MAP=L.map("map",{preferCanvas:true,zoomControl:true,renderer:L.canvas({tolerance:14})});MAP.on("click",trackClick);
   const osm=L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"});
   const topo=L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",{maxZoom:17,subdomains:"abc",attribution:"© OpenStreetMap, SRTM, © OpenTopoMap"});
   const sat=L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",{maxZoom:19,attribution:"Esri, Maxar, Earthstar Geographics"});
@@ -612,7 +612,7 @@ function drawTrack(){
   const {P,segs,events}=curA;const lg=$("legend");
   if(colorMode==="speed")lg.innerHTML=VLBL.map((l,i)=>`<span><span class="sw" style="background:${VCOL[i]}"></span>${l}</span>`).join("")+" km/h";
   else lg.innerHTML=["drive","walk","run","bike"].map(c=>`<span><span class="sw" style="background:${ccol(c)}"></span>${CLS[c].n}</span>`).join("");
-  lg.innerHTML+=` · <span><span class="dot" style="background:${EVC.accel}"></span>przyspieszenie</span><span><span class="dot" style="background:${EVC.brake}"></span>hamowanie</span><span><span class="dot" style="background:${EVC.corner}"></span>zakręt</span><span>▲ maks.</span><span>⬤ pobyt</span><span>- - brak pomiarów</span>`;
+  lg.innerHTML+=` · <span><span class="dot" style="background:${EVC.accel}"></span>przyspieszenie</span><span><span class="dot" style="background:${EVC.brake}"></span>hamowanie</span><span><span class="dot" style="background:${EVC.corner}"></span>zakręt</span><span>▲ maks.</span><span>⬤ pobyt</span><span>- - brak pomiarów</span><br><span>Dotknij trasy, aby zobaczyć godzinę i prędkość.</span>`;
   if(!MAP)return;LAY.clearLayers();
   const segOf=new Int32Array(P.length).fill(-1);segs.forEach((s,q)=>{if(s.gap)return;for(let i=s.i0;i<=s.i1;i++)segOf[i]=q;});
   /* linia: pomijane punkty pobytów; kolor wg prędkości lub rodzaju; przerwy > 15 s linią przerywaną */
@@ -628,12 +628,12 @@ function drawTrack(){
   /* pobyty */
   let nr=0;
   segs.forEach((s,q)=>{if(s.c!=="stay")return;nr++;
-    L.circle([s.lat,s.lon],{radius:Math.max(8,s.spread||0),color:"#444",weight:1,fillColor:"#666",fillOpacity:.15}).addTo(LAY);
+    L.circle([s.lat,s.lon],{radius:Math.max(8,s.spread||0),color:"#444",weight:1,fillColor:"#666",fillOpacity:.15,bubblingMouseEvents:false}).addTo(LAY);
     const m=L.marker([s.lat,s.lon],{icon:L.divIcon({className:"",html:`<div class="lbl">${nr}</div>`,iconSize:null})}).addTo(LAY);
     m.on("click",()=>selSeg(q,true));m.bindPopup(()=>{const pl=placeAt(s.lat,s.lon);const g=GEO.get(gkey(s.lat,s.lon));
       return `<b>Pobyt ${nr}</b>${pl?" – "+esc(pl.p.name):""}<br>${fmtTs(s.t0)} – ${fmtTs(s.t1)} (${fmtDur((s.t1-s.t0)/1000)})<br>${esc(addrTxt(g))}<br><span style="color:#666">położenie ±${nf0.format(s.spread||0)} m${s.acc!=null?", dokładność GPS "+nf0.format(s.acc)+" m":""}</span>`;});});
   /* zdarzenia */
-  for(const e of events){L.circleMarker([e.lat,e.lon],{radius:8,color:"#fff",weight:2,fillColor:EVC[e.type],fillOpacity:1}).addTo(LAY)
+  for(const e of events){L.circleMarker([e.lat,e.lon],{radius:9,color:"#fff",weight:2,fillColor:EVC[e.type],fillOpacity:1,bubblingMouseEvents:false}).addTo(LAY)
     .bindPopup(`<b>${EVN[e.type]}</b><br>${fmtTs(e.t)}<br>${e.type==="corner"?"przyspieszenie boczne":"zmiana prędkości"}: ${nf1.format(e.ms2)} m/s² (${nf2.format(e.g)} g)`+
       (e.kmhs?`<br>${nf1.format(e.kmhs)} km/h w 1 s`:"")+(e.type!=="corner"?`<br>${fmtV(e.v0)} → ${fmtV(e.v1)}`:`<br>przy ${fmtV(P.find(p=>p.t===e.t).v)}`));}
   /* maksymalne prędkości przejazdów */
@@ -701,6 +701,23 @@ function drawChart(){
     s+=`<text x="${W-mr+6}" y="${YH(hmax)+8}" class="axis" fill="#d6336c">${hmax}</text><text x="${W-mr+6}" y="${YH(hmin)}" class="axis">${hmin}</text><text x="${W-mr}" y="24" class="axis" text-anchor="end">tętno</text>`;}
   for(const e of curA.events){const p=P.find(q=>q.t===e.t);if(p)s+=`<circle cx="${X(e.t)}" cy="${Y(p.v)}" r="8" fill="${EVC[e.type]}" stroke="#fff" stroke-width="2"/>`;}
   $("chart").innerHTML=s+"</svg>";
+}
+/* dotknięcie trasy: godzina i prędkość w najbliższym punkcie pomiaru */
+function trackClick(e){
+  if(!curA||!MAP)return;const P=curA.P;if(!P.length)return;
+  const cp=e.containerPoint;let best=-1,bd=Infinity;
+  for(let i=0;i<P.length;i++){const q=MAP.latLngToContainerPoint([P[i].lat,P[i].lon]);const d=(q.x-cp.x)**2+(q.y-cp.y)**2;if(d<bd){bd=d;best=i;}}
+  if(best<0||bd>45*45)return;
+  const p=P[best];const s=curA.segs.find(s=>!s.gap&&p.t>=s.t0&&p.t<=s.t1);
+  const row=(k,v)=>`<tr><td style="color:#666;padding-right:8px">${k}</td><td><b>${v}</b></td></tr>`;
+  let h=`<div style="font-size:15px;font-weight:700;margin-bottom:4px">${fmtTs(p.t)}</div><table style="font-size:13px">`+
+    row("Prędkość",fmtV(p.vr)+(p.dop?"":" (z położeń)"))+
+    (s?row("Rodzaj",CLS[s.c].n):"")+
+    (p.acc!=null?row("Dokładność GPS","± "+nf0.format(p.acc)+" m"):"")+
+    (p.ele!=null?row("Wysokość",nf0.format(p.ele)+" m n.p.m."):"")+
+    (p.hr!=null?row("Tętno",nf0.format(p.hr)+" /min"):"")+
+    row("Źródło",p.src==="watch"?"zegarek":"telefon")+"</table>";
+  L.popup({maxWidth:260}).setLatLng([p.lat,p.lon]).setContent(h).openOn(MAP);
 }
 /* odtwarzanie */
 function setupPlay(){
