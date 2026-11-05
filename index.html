@@ -631,7 +631,7 @@ function drawTrack(){
     L.circle([s.lat,s.lon],{radius:Math.max(8,s.spread||0),color:"#444",weight:1,fillColor:"#666",fillOpacity:.15,bubblingMouseEvents:false}).addTo(LAY);
     const m=L.marker([s.lat,s.lon],{icon:L.divIcon({className:"",html:`<div class="lbl">${nr}</div>`,iconSize:null})}).addTo(LAY);
     m.on("click",()=>selSeg(q,true));m.bindPopup(()=>{const pl=placeAt(s.lat,s.lon);const g=GEO.get(gkey(s.lat,s.lon));
-      return `<b>Pobyt ${nr}</b>${pl?" – "+esc(pl.p.name):""}<br>${fmtTs(s.t0)} – ${fmtTs(s.t1)} (${fmtDur((s.t1-s.t0)/1000)})<br>${esc(addrTxt(g))}<br><span style="color:#666">położenie ±${nf0.format(s.spread||0)} m${s.acc!=null?", dokładność GPS "+nf0.format(s.acc)+" m":""}</span>`;});});
+      return `<b>Pobyt ${nr}</b>${pl?" – "+esc(pl.p.name):""}<br>${fmtTs(s.t0)} – ${q===segs.length-1&&dateKey(s.t0)===dateKey(Date.now())?"nie zaktualizowane (ostatni zapis "+fmtTs(s.t1)+")":fmtTs(s.t1)+" ("+fmtDur((s.t1-s.t0)/1000)+")"}<br>${esc(addrTxt(g))}<br><span style="color:#666">położenie ±${nf0.format(s.spread||0)} m${s.acc!=null?", dokładność GPS "+nf0.format(s.acc)+" m":""}</span>`;});});
   /* zdarzenia */
   for(const e of events){L.circleMarker([e.lat,e.lon],{radius:9,color:"#fff",weight:2,fillColor:EVC[e.type],fillOpacity:1,bubblingMouseEvents:false}).addTo(LAY)
     .bindPopup(`<b>${EVN[e.type]}</b><br>${fmtTs(e.t)}<br>${e.type==="corner"?"przyspieszenie boczne":"zmiana prędkości"}: ${nf1.format(e.ms2)} m/s² (${nf2.format(e.g)} g)`+
@@ -656,24 +656,28 @@ function buildTimeline(d){
   const {P,segs,events}=curA;const UL=$("tl");let nr=0;
   segs.forEach((s,q)=>{
     const li=document.createElement("li");li.dataset.q=q;const dur=(s.t1-s.t0)/1000;
+    /* ostatni wpis dzisiejszego dnia: koniec nieznany, bo brak nowszych danych */
+    const open=q===segs.length-1&&!s.gap&&dateKey(s.t0)===dateKey(Date.now());
+    const span=open?`${fmtTs(s.t0)} – <b style="color:#c92a2a">nie zaktualizowane</b> <span class="note">(ostatni zapis ${fmtTs(s.t1)}, ${fmtDur(Math.max(0,(Date.now()-s.t1)/1000))} temu)</span>`:`${fmtTs(s.t0)} – ${fmtTs(s.t1)}`;
+    const durTxt=open?"co najmniej "+fmtDur(dur):fmtDur(dur);
     const col=s.c==="stay"?ccol("stay"):s.gap?ccol("gap"):ccol(s.c);
     let body="";
     if(s.c==="stay"){nr++;
-      body=`<div class="ti">Pobyt ${nr} · ${fmtDur(dur)}</div><div class="ad" data-a></div>
-        <div class="de">${fmtTs(s.t0)} – ${fmtTs(s.t1)} · położenie ±${nf0.format(s.spread||0)} m${s.acc!=null?" · GPS "+nf0.format(s.acc)+" m":""}${s.hr?" · tętno śr. "+nf0.format(s.hr):""}</div>`;}
+      body=`<div class="ti">Pobyt ${nr} · ${durTxt}</div><div class="ad" data-a></div>
+        <div class="de">${span} · położenie ±${nf0.format(s.spread||0)} m${s.acc!=null?" · GPS "+nf0.format(s.acc)+" m":""}${s.hr?" · tętno śr. "+nf0.format(s.hr):""}</div>`;}
     else if(s.gap){body=`<div class="ti">Brak danych · ${fmtDur(dur)}</div><div class="de">${fmtTs(s.t0)} – ${fmtTs(s.t1)} · przemieszczenie w linii prostej ${fmtKm(s.d)}</div>`;}
     else{const avg=dur>0?s.d/dur*3.6:null;const e=s.ev||{brake:0,accel:0,corner:0};
-      body=`<div class="ti">${CLS[s.c].n} · ${fmtKm(s.d)} · ${fmtDur(dur)}</div><div class="ad" data-a></div><div class="ad" data-b></div>
-        <div class="de">${fmtTs(s.t0)} – ${fmtTs(s.t1)} · śr. ${fmtV(avg)} · maks. ${fmtV(s.max)}${s.hr?" · tętno śr. "+nf0.format(s.hr)+", maks. "+nf0.format(s.hrMax):""}${s.hiT>0?" · > "+S.high+" km/h: "+fmtKm(s.hiD):""}</div>`+
+      body=`<div class="ti">${CLS[s.c].n} · ${fmtKm(s.d)} · ${durTxt}</div><div class="ad" data-a></div><div class="ad" data-b>${open?"do: — (jeszcze w trasie lub brak nowszych danych)":""}</div>
+        <div class="de">${span} · śr. ${fmtV(avg)} · maks. ${fmtV(s.max)}${s.hr?" · tętno śr. "+nf0.format(s.hr)+", maks. "+nf0.format(s.hrMax):""}${s.hiT>0?" · > "+S.high+" km/h: "+fmtKm(s.hiD):""}</div>`+
         (s.c==="drive"?`<div class="ev"><span class="dot" style="background:${EVC.brake}"></span>${e.brake} <span class="dot" style="background:${EVC.accel}"></span>${e.accel} <span class="dot" style="background:${EVC.corner}"></span>${e.corner} · ocena ${s.score!=null?s.score+"/100":"— (brak prędkości z odbiornika)"}</div>`:"");}
     if(s.note)body+=`<div class="de">📝 ${esc(s.note)}</div>`;
     if(s.edited)body+=`<span class="badge">poprawione ręcznie</span>`;
     body+=`<div class="act">${s.gap?"":`<button class="sm" data-ed>Korekta</button>`}${s.c==="stay"?`<button class="sm" data-pl>Nazwij miejsce</button>`:""}<a class="note" target="_blank" rel="noopener" href="https://www.openstreetmap.org/?mlat=${(s.lat??P[s.i0].lat).toFixed(6)}&mlon=${(s.lon??P[s.i0].lon).toFixed(6)}#map=18/${(s.lat??P[s.i0].lat).toFixed(6)}/${(s.lon??P[s.i0].lon).toFixed(6)}">OSM</a></div>`;
-    li.innerHTML=`<div class="tm">${fmtT(s.t0)}<br>${fmtT(s.t1)}</div><div class="bar" style="background:${col}"></div><div>${body}</div>`;
+    li.innerHTML=`<div class="tm">${fmtT(s.t0)}<br>${open?"–":fmtT(s.t1)}</div><div class="bar" style="background:${col}"></div><div>${body}</div>`;
     li.onclick=ev=>{if(ev.target.closest("button,a"))return;selSeg(q);};
     UL.appendChild(li);
     if(s.c==="stay")fillAddr(li.querySelector("[data-a]"),s.lat,s.lon);
-    else if(!s.gap){fillAddr(li.querySelector("[data-a]"),s.lat,s.lon,"z: ");fillAddr(li.querySelector("[data-b]"),s.lat2,s.lon2,"do: ");}
+    else if(!s.gap){fillAddr(li.querySelector("[data-a]"),s.lat,s.lon,"z: ");if(!open)fillAddr(li.querySelector("[data-b]"),s.lat2,s.lon2,"do: ");}
     const eb=li.querySelector("[data-ed]");if(eb)eb.onclick=()=>editSeg(d,s);
     const pb=li.querySelector("[data-pl]");if(pb)pb.onclick=()=>namePlace(s);
   });
