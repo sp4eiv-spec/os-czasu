@@ -75,6 +75,7 @@ svg{display:block;width:100%;height:auto}
 .cd.today{outline:2px solid var(--acc)}
 .cn{font-weight:600}.ck{font-variant-numeric:tabular-nums;color:var(--mut);font-size:11px}
 .cb{display:flex;height:4px;border-radius:2px;overflow:hidden;margin-top:3px}
+.call.sm{display:inline-block;width:18px;height:18px;font-size:10px;line-height:15px;vertical-align:middle;border-width:1px}.cl1{cursor:pointer;white-space:nowrap;margin-right:8px}
 .call{width:24px;height:24px;border-radius:50%;border:2px solid #000;color:#fff;font-size:13px;line-height:20px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.5)}
 </style>
 </head>
@@ -503,6 +504,9 @@ async function pumpGeo(){
   while(geoQ.length){const j=geoQ.shift();if(GEO.has(j.k)){j.res(GEO.get(j.k));continue;}
     const w=1100-(Date.now()-geoLast);if(w>0)await sleep(w);geoLast=Date.now();
     let r=null;
+    if(j.town){try{const x=await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${j.la}&lon=${j.lo}&zoom=14&addressdetails=1&accept-language=pl`,{signal:AbortSignal.timeout(8000)});
+        if(x.ok){const o=await x.json();const a=o&&o.address;if(a)r={town:a.city||a.town||a.village||a.hamlet||a.isolated_dwelling||a.suburb||""};}}catch(e){}
+      if(r){GEO.set(j.k,r);if(IDB)try{await kvSet(j.k,r,"geo");}catch(e){}}j.res(r);continue;}
     try{const u=`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${j.la}&lon=${j.lo}&zoom=18&addressdetails=1&accept-language=pl`;
       const x=await fetch(u,{signal:AbortSignal.timeout(8000)});if(x.ok){const o=await x.json();if(o&&o.address){const a=o.address;
         r={street:a.road||a.pedestrian||a.footway||a.square||a.hamlet||"",no:a.house_number||"",town:a.city||a.town||a.village||a.hamlet||a.municipality||"",
@@ -517,6 +521,18 @@ async function pumpGeo(){
 function addrTxt(r){if(!r)return "adres niedostępny";
   const line=(r.street?r.street+(r.no?" "+r.no:""):(r.name||"brak nazwy ulicy"))+(r.town?", "+r.town:"");
   return line+(r.no?"":" (bez numeru)");}
+/* miejscowość (poziom wsi/miasta) – klucz z dokładnością ok. 100 m */
+async function townAt(la,lo){const k="T"+la.toFixed(3)+","+lo.toFixed(3);if(GEO.has(k))return GEO.get(k);
+  if(IDB){try{const c=await kvGet(k,"geo");if(c){GEO.set(k,c);return c;}}catch(e){}}
+  return new Promise(res=>{geoQ.push({la,lo,k,res,town:true});pumpGeo();});}
+/* miejscowości na trasie: próbki co ok. 1 km (najwyżej 80 na odcinek), kolejne powtórzenia łączone */
+async function fillTowns(el,s){const P=curA.P;const pts=[];let acc=0,step=Math.max(1000,(s.d||0)/80);
+  pts.push(s.i0);for(let i=s.i0+1;i<=s.i1;i++){acc+=hav(P[i-1].lat,P[i-1].lon,P[i].lat,P[i].lon);if(acc>=step){pts.push(i);acc=0;}}if(pts[pts.length-1]!==s.i1)pts.push(s.i1);
+  const out=[];const draw=done=>{el.innerHTML="przez: "+out.map(o=>`<b>${esc(o.n)}</b> ${fmtT(o.t)}`).join(" → ")+(done?"":` <span class="note">ustalanie miejscowości…</span>`);};
+  el.innerHTML=`przez: <span class="note">ustalanie miejscowości…</span>`;
+  for(const i of pts){const r=await townAt(P[i].lat,P[i].lon);if(!el.isConnected)return;const n=r&&r.town;
+    if(n&&(!out.length||out[out.length-1].n!==n))out.push({n,t:P[i].t});draw(false);}
+  draw(true);if(!out.length)el.innerHTML=`przez: <span class="note">brak nazw miejscowości</span>`;}
 function fillAddr(el,la,lo,prefix){
   const pl=placeAt(la,lo);
   const set=r=>{const base=addrTxt(r);const dist=r&&r.no?` · ${nf0.format(r.dist)} m od budynku`:"";
@@ -674,9 +690,11 @@ function buildTimeline(d){
         <div class="de">${span} · położenie ±${nf0.format(s.spread||0)} m${s.acc!=null?" · GPS "+nf0.format(s.acc)+" m":""}${s.hr?" · tętno śr. "+nf0.format(s.hr):""}</div>`;}
     else if(s.gap){body=`<div class="ti">Brak danych · ${fmtDur(dur)}</div><div class="de">${fmtTs(s.t0)} – ${fmtTs(s.t1)} · przemieszczenie w linii prostej ${fmtKm(s.d)}</div>`;}
     else{const avg=dur>0?s.d/dur*3.6:null;const e=s.ev||{brake:0,accel:0,corner:0};
-      body=`<div class="ti">${CLS[s.c].n} · ${fmtKm(s.d)} · ${durTxt}</div><div class="ad" data-a></div><div class="ad" data-b>${open?"do: — (jeszcze w trasie lub brak nowszych danych)":""}</div>
+      body=`<div class="ti">${CLS[s.c].n} · ${fmtKm(s.d)} · ${durTxt}</div><div class="ad" data-a></div><div class="ad" data-b>${open?"do: — (jeszcze w trasie lub brak nowszych danych)":""}</div>${(s.d||0)>=500?'<div class="ad" data-tw></div>':""}
         <div class="de">${span} · śr. ${fmtV(avg)} · maks. ${fmtV(s.max)}${s.hr?" · tętno śr. "+nf0.format(s.hr)+", maks. "+nf0.format(s.hrMax):""}${s.hiT>0?" · > "+S.high+" km/h: "+fmtKm(s.hiD):""}</div>`+
         (s.c==="drive"?`<div class="ev"><span class="dot" style="background:${EVC.brake}"></span>${e.brake} <span class="dot" style="background:${EVC.accel}"></span>${e.accel} <span class="dot" style="background:${EVC.corner}"></span>${e.corner} · ocena ${s.score!=null?s.score+"/100":"— (brak prędkości z odbiornika)"}</div>`:"");}
+    const sc=(curA.calls||[]).map((c,i)=>({c,i})).filter(o=>o.c.t>=s.t0&&o.c.t<=s.t1);
+    if(sc.length)body+=`<div class="de">`+sc.map(o=>`<span class="cl1" data-ci="${o.i}"><span class="call sm" style="background:${CALLC[o.c.ty]||CALLC[3]}">☎</span> ${fmtT(o.c.t)} ${esc(o.c.nm||o.c.n||"nieznany numer")}${o.c.d>0?" ("+fmtDur(o.c.d)+")":" – "+(CALLN[o.c.ty]||"").toLowerCase()}</span>`).join(" ")+`</div>`;
     if(s.note)body+=`<div class="de">📝 ${esc(s.note)}</div>`;
     if(s.edited)body+=`<span class="badge">poprawione ręcznie</span>`;
     body+=`<div class="act">${s.gap?"":`<button class="sm" data-ed>Korekta</button>`}${s.c==="stay"?`<button class="sm" data-pl>Nazwij miejsce</button>`:""}<a class="note" target="_blank" rel="noopener" href="https://www.openstreetmap.org/?mlat=${(s.lat??P[s.i0].lat).toFixed(6)}&mlon=${(s.lon??P[s.i0].lon).toFixed(6)}#map=18/${(s.lat??P[s.i0].lat).toFixed(6)}/${(s.lon??P[s.i0].lon).toFixed(6)}">OSM</a></div>`;
@@ -685,6 +703,8 @@ function buildTimeline(d){
     UL.appendChild(li);
     if(s.c==="stay")fillAddr(li.querySelector("[data-a]"),s.lat,s.lon);
     else if(!s.gap){fillAddr(li.querySelector("[data-a]"),s.lat,s.lon,"z: ");if(!open)fillAddr(li.querySelector("[data-b]"),s.lat2,s.lon2,"do: ");}
+    const tw=li.querySelector("[data-tw]");if(tw)fillTowns(tw,s);
+    li.querySelectorAll("[data-ci]").forEach(x=>x.onclick=ev=>{ev.stopPropagation();const m=CALLM[+x.dataset.ci];if(m&&MAP){MAP.setView(m.getLatLng(),17);m.openPopup();document.getElementById("map").scrollIntoView({block:"nearest",behavior:"smooth"});}});
     const eb=li.querySelector("[data-ed]");if(eb)eb.onclick=()=>editSeg(d,s);
     const pb=li.querySelector("[data-pl]");if(pb)pb.onclick=()=>namePlace(s);
   });
