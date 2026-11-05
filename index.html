@@ -89,6 +89,7 @@ svg{display:block;width:100%;height:auto}
       <input id="file" type="file" multiple accept=".gpx,.csv,.fit,.zip,.kml,.txt">
       <button id="bDrv">Dysk Google</button>
       <button id="bSum">Kalendarz</button>
+      <button id="bFind">Szukaj</button>
       <button id="bPlaces">Miejsca</button>
       <button id="bSet">Ustawienia</button>
       <button id="bBak">Kopia</button>
@@ -671,7 +672,7 @@ async function show(k,keepView){
   const tile=(k,v,s,c)=>`<div class="tile"><div class="k">${c?`<span class="sw" style="background:${ccol(c)}"></span>`:""}${k}</div><div class="v">${v}</div>${s?`<div class="s">${s}</div>`:""}</div>`;
   const ct=c=>agg[c].t>0?tile(CLS[c].n,fmtDur(agg[c].t),c==="stay"?segs.filter(s=>s.c==="stay").length+" miejsc":fmtKm(agg[c].d),c):"";
   const qual=`Punktów: ${nf0.format(P.length)} z ${nf0.format(A.nRaw)} (odrzucone: ${A.dropAcc} słaba dokładność, ${A.dropJump} skoki) · prędkość z odbiornika: ${nf0.format(A.dop*100)}% · z zegarka: ${nf0.format(A.watch*100)}%`;
-  let h=`<div class="card"><div class="tiles">
+  let h=gapWarn(k,A)+`<div class="card"><div class="tiles">
     ${tile("W ruchu",fmtKm(mvD),fmtDur(mvT))}
     ${tile("Maks. prędkość",fmtV(mx),mxAt!=null?"o "+fmtTs(P[mxAt].t):"")}
     ${ct("drive")}${ct("walk")}${ct("run")}${ct("bike")}${ct("stay")}
@@ -684,14 +685,14 @@ async function show(k,keepView){
       <input id="pRng" type="range" min="0" max="1000" value="0"><span id="pInfo" class="note"></span></div></div>`;
   h+=`<div class="card"><b>Prędkość${P.some(p=>p.hr!=null)?" i tętno":""}</b><div id="chart"></div></div>`;
   h+=`<div class="card"><div class="row" style="margin-bottom:4px"><b class="grow">Oś czasu</b>
-      <button class="sm" id="eCsv">CSV</button><button class="sm" id="eGpx">GPX</button>${driveReady()?'<button class="sm" id="eDrv">Na Dysk</button>':""}<button class="sm" id="eDel">Usuń dzień</button></div><ul class="tl" id="tl"></ul></div>`;
+      <button class="sm" id="eRap">Raport</button><button class="sm" id="eCsv">CSV</button><button class="sm" id="eGpx">GPX</button>${driveReady()?'<button class="sm" id="eDrv">Na Dysk</button>':""}<button class="sm" id="eDel">Usuń dzień</button></div><ul class="tl" id="tl"></ul></div>`;
   h+=callsCard(A);
   let mv=null;const sy=window.scrollY;if(keepView&&MAP){mv={c:MAP.getCenter(),z:MAP.getZoom()};}
   if(MAP){MAP.remove();MAP=null;}
   V.innerHTML=h;
   $("cMode").value=colorMode;$("cMode").onchange=e=>{colorMode=e.target.value;drawTrack();};
   initMap();if(mv&&MAP){MAP.setView(mv.c,mv.z);_kb=true;}drawTrack();drawChart();buildTimeline(d);setupPlay();bindCalls();if(mv)window.scrollTo(0,sy);
-  $("eCsv").onclick=()=>exportCSV(k,false);$("eGpx").onclick=()=>exportGPX(k,false);if($("eDrv"))$("eDrv").onclick=async()=>{try{await exportCSV(k,true);await exportGPX(k,true);}catch(e){msg("Dysk: "+e.message,true);}};$("eDel").onclick=()=>askDelete(k);
+  $("eRap").onclick=()=>dayReport(k);$("eCsv").onclick=()=>exportCSV(k,false);$("eGpx").onclick=()=>exportGPX(k,false);if($("eDrv"))$("eDrv").onclick=async()=>{try{await exportCSV(k,true);await exportGPX(k,true);}catch(e){msg("Dysk: "+e.message,true);}};$("eDel").onclick=()=>askDelete(k);
 }
 function initMap(){
   if(!window.L){$("map").innerHTML='<p class="note" style="padding:12px">Mapa niedostępna – biblioteka mapy nie wczytała się (brak internetu?). Oś czasu działa.</p>';return;}
@@ -896,15 +897,16 @@ function namePlace(s){
   const ex=placeAt(s.lat,s.lon);
   dlg(`<h2>Nazwa miejsca</h2><p class="note">Pobyty w tym promieniu będą opisywane tą nazwą (oprócz adresu).</p>
     <label class="f">Nazwa <input id="nN" type="text" value="${esc(ex?ex.p.name:"")}" placeholder="np. Dom, Praca, Remiza"></label>
+    <label class="f">Rodzaj <select id="nK">${PKIND.map(x=>`<option ${ex&&ex.p.kind===x?"selected":""}>${x}</option>`).join("")}</select></label>
     <label class="f">Promień (m) <input id="nR" type="number" min="10" max="1000" value="${ex?ex.p.r:Math.max(40,Math.round((s.spread||0)*3/10)*10)}"></label>
     <div class="row"><span class="grow"></span><button id="nQ">Anuluj</button><button id="nOk" class="pri">Zapisz</button></div>`);
   $("nQ").onclick=closeDlg;
-  $("nOk").onclick=async()=>{const name=$("nN").value.trim();const r=+$("nR").value;if(!name||!(r>0))return;
-    if(ex){ex.p.name=name;ex.p.r=r;}else PLACES.push({id:Date.now(),name,lat:s.lat,lon:s.lon,r});
-    await savePlaces();closeDlg();show(cur);};
+  $("nOk").onclick=async()=>{const name=$("nN").value.trim();const r=+$("nR").value;const kind=$("nK").value;if(!name||!(r>0))return;
+    if(ex){ex.p.name=name;ex.p.r=r;ex.p.kind=kind;}else PLACES.push({id:Date.now(),name,lat:s.lat,lon:s.lon,r,kind});
+    await savePlaces();closeDlg();if($("sumView").style.display==="none")show(cur);else if(typeof window.__calRender==="function")window.__calRender();};
 }
 $("bPlaces").onclick=()=>{
-  dlg(`<h2>Moje miejsca</h2>${PLACES.length?`<table><tr><th>Nazwa</th><th>Promień</th><th></th></tr>${PLACES.map((p,i)=>`<tr><td>${esc(p.name)}<br><span class="note">${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}</span></td><td>${p.r} m</td><td><button class="sm" data-i="${i}">Usuń</button></td></tr>`).join("")}</table>`:'<p class="note">Brak. Miejsce dodaje się przyciskiem „Nazwij miejsce” przy pobycie.</p>'}
+  dlg(`<h2>Moje miejsca</h2>${PLACES.length?`<table><tr><th>Nazwa</th><th>Promień</th><th></th></tr>${PLACES.map((p,i)=>`<tr><td>${esc(p.name)}${p.kind?` <span class="note">(${esc(p.kind)})</span>`:""}<br><span class="note">${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}</span></td><td>${p.r} m</td><td><button class="sm" data-i="${i}">Usuń</button></td></tr>`).join("")}</table>`:'<p class="note">Brak. Miejsce dodaje się przyciskiem „Nazwij miejsce” przy pobycie.</p>'}
    <div class="row" style="margin-top:10px"><span class="grow"></span><button id="plQ" class="pri">Zamknij</button></div>`);
   $("plQ").onclick=closeDlg;
   $("dlgBox").querySelectorAll("[data-i]").forEach(b=>b.onclick=async()=>{PLACES.splice(+b.dataset.i,1);await savePlaces();$("bPlaces").onclick();if(cur)show(cur);});
@@ -1028,7 +1030,8 @@ $("bSum").onclick=()=>{
       rowsOut.push([k,dec(km("drive"),2),Math.round(t("drive")/60),s.trips||0,dec(s.max,0),dec(km("walk"),2),dec(km("run"),2),dec(km("bike"),2),s.ev?s.ev.brake:0,s.ev?s.ev.accel:0,s.ev?s.ev.corner:0]);}
     h+=`<tr><th>Razem</th><th>${nf1.format(T.dr)}</th><th>${fmtDur(T.tdr)}</th><th>${T.trips}</th><th>${fmtV(T.max)}</th><th>${nf1.format(T.wk)}</th><th>${nf1.format(T.rn)}</th><th>${T.b}</th><th>${T.a}</th><th>${T.c}</th></tr></table></div>
       <p class="note">Zestawienie pomocnicze (nie stanowi ewidencji przebiegu pojazdu). Kliknięcie dnia otwiera jego oś czasu.</p></div>`;
-    V.innerHTML=h;$("mSel").onchange=e=>render(e.target.value);$("mX").onclick=()=>{V.style.display="none";$("view").style.display="";};
+    h+=`<div class="card" id="plSum"><b>Czas w moich miejscach</b><p class="note">liczenie…</p></div>`;
+    V.innerHTML=h;window.__calRender=()=>render(m);placeSummary(m,rows);$("mSel").onchange=e=>render(e.target.value);$("mX").onclick=()=>{V.style.display="none";$("view").style.display="";};
     $("mCsv").onclick=()=>out(`zestawienie-${m}.csv`,"\ufeff"+rowsOut.map(r=>r.map(csvCell).join(";")).join("\r\n"),"text/csv",driveReady());
     V.querySelectorAll("tr[data-k],.cd[data-k]").forEach(tr=>tr.onclick=()=>{V.style.display="none";$("view").style.display="";cur=tr.dataset.k;$("daySel").value=cur;show(cur);});};
   render(months[0]);
@@ -1194,5 +1197,95 @@ setInterval(driveUI,60000);
 function autoSync(){if(document.visibilityState==="visible"&&driveReady()&&D.syncAuto&&tokOk()&&!syncing)driveSync(false);}
 setInterval(autoSync,300000);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&Date.now()-(D.lastSync||0)>120000)autoSync();});
+/* ================= 1. wyszukiwanie po miejscu ================= */
+const SRCHR={house:60,building:60,street:120,road:120,isolated_dwelling:250,farm:250,hamlet:450,neighbourhood:500,quarter:700,suburb:900,village:700,town:1500,city:3000,locality:400};
+$("bFind").onclick=()=>{
+  dlg(`<h2>Szukaj miejsca</h2><p class="note">Wpisz miejscowość, adres albo nazwę z „Moich miejsc”. Aplikacja przejrzy wszystkie zapisane dni i pokaże, kiedy tam byłeś albo tamtędy przejeżdżałeś.</p>
+    <div class="row"><input id="fQ" type="text" class="grow" placeholder="np. Głowbity, Reszel Kolejowa 19a"><button id="fGo" class="pri">Szukaj</button></div>
+    <div id="fRes" style="margin-top:8px"></div><div class="row" style="margin-top:10px"><span class="grow"></span><button id="fX">Zamknij</button></div>`);
+  $("fX").onclick=closeDlg;const go=()=>findPlace($("fQ").value.trim());$("fGo").onclick=go;$("fQ").onkeydown=e=>{if(e.key==="Enter")go();};$("fQ").focus();
+};
+async function findPlace(q){const R=$("fRes");if(!q)return;R.innerHTML=`<p class="note">szukanie „${esc(q)}”…</p>`;
+  const opts=PLACES.filter(p=>p.name.toLowerCase().includes(q.toLowerCase())).map(p=>({n:p.name,sub:"moje miejsce"+(p.kind?" · "+p.kind:""),lat:p.lat,lon:p.lon,r:p.r}));
+  let c=null;for(const d of Object.keys(INDEX.days).sort().reverse()){const x=await loadDay(d);const A=x&&analyzeDay(x);if(A&&A.P.length){c=A.P[A.P.length-1];break;}}
+  try{const u=`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=8&lang=default`+(c?`&lat=${c.lat.toFixed(3)}&lon=${c.lon.toFixed(3)}`:"");
+    const o=await(await fetch(u,{signal:AbortSignal.timeout(15000)})).json();
+    for(const f of o.features||[]){const p=f.properties||{};const nm=[p.street||p.name,p.housenumber].filter(Boolean).join(" ")||p.name;
+      opts.push({n:nm+(p.street&&(p.city||p.locality)?", "+(p.city||p.locality):""),sub:[p.osm_value,p.county||p.district,p.state].filter(Boolean).join(" · "),lat:f.geometry.coordinates[1],lon:f.geometry.coordinates[0],r:SRCHR[p.osm_value]||(p.housenumber?60:400)});}}
+  catch(e){if(!opts.length){R.innerHTML=`<p class="note">Wyszukiwarka map nie odpowiada (brak internetu?). Spróbuj ponownie.</p>`;return;}}
+  if(!opts.length){R.innerHTML=`<p class="note">Nic nie znaleziono.</p>`;return;}
+  R.innerHTML=`<p class="note">Wybierz właściwe miejsce:</p>`+opts.map((o,i)=>`<div class="row" style="margin:4px 0"><button class="sm" data-o="${i}">Wybierz</button><span class="grow"><b>${esc(o.n)}</b> <span class="note">${esc(o.sub)}</span></span></div>`).join("");
+  R.querySelectorAll("[data-o]").forEach(b=>b.onclick=()=>{const o=opts[+b.dataset.o];
+    R.innerHTML=`<p><b>${esc(o.n)}</b></p><label class="f">Promień wokół miejsca <span><input id="fR" type="number" min="20" max="5000" step="10" value="${o.r}"> m</span></label><div class="row"><span class="grow"></span><button id="fScan" class="pri">Przeszukaj wszystkie dni</button></div><div id="fOut"></div>`;
+    $("fScan").onclick=()=>scanVisits(o,+$("fR").value||o.r);});}
+async function scanVisits(o,Rm){const out=$("fOut");const ks=Object.keys(INDEX.days).sort().reverse();const V=[];
+  const dLat=Rm/111320+0.001,dLon=Rm/(111320*Math.cos(o.lat*D2R))+0.001;
+  for(let n=0;n<ks.length;n++){const k=ks[n];if(n%5===0){out.innerHTML=`<p class="note">przeglądanie dni: ${n}/${ks.length}…</p>`;await sleep(0);}
+    const d=await loadDay(k);if(!d)continue;const A=analyzeDay(d);const P=A.P;let v=null;
+    for(let i=0;i<P.length;i++){const p=P[i];if(Math.abs(p.lat-o.lat)>dLat||Math.abs(p.lon-o.lon)>dLon){if(v&&p.t-v.t1>600000){V.push(v);v=null;}continue;}
+      const dd=hav(p.lat,p.lon,o.lat,o.lon);
+      if(dd<=Rm){if(v&&p.t-v.t1<=600000){v.t1=p.t;v.dm=Math.min(v.dm,dd);}else{if(v)V.push(v);v={k,t0:p.t,t1:p.t,dm:dd};}}
+      else if(v&&p.t-v.t1>600000){V.push(v);v=null;}}
+    if(v)V.push(v);
+    for(const x of V.filter(x=>x.k===k)){const st=A.segs.find(s=>s.c==="stay"&&s.t1>=x.t0&&s.t0<=x.t1&&hav(s.lat,s.lon,o.lat,o.lon)<=Rm+30);x.stay=!!st;if(st){x.t0=Math.min(x.t0,st.t0);x.t1=Math.max(x.t1,st.t1);}}
+    /* łączenie nakładających się wizyt tego dnia */
+    const D=V.filter(x=>x.k===k).sort((a,b)=>a.t0-b.t0);for(let i=1;i<D.length;i++)if(D[i].t0<=D[i-1].t1+60000){D[i-1].t1=Math.max(D[i-1].t1,D[i].t1);D[i-1].dm=Math.min(D[i-1].dm,D[i].dm);D[i-1].stay=D[i-1].stay||D[i].stay;V.splice(V.indexOf(D[i]),1);D.splice(i,1);i--;}}
+  if(!V.length){out.innerHTML=`<p class="note">W zapisanych dniach nie ma pobytu ani przejazdu w promieniu ${nf0.format(Rm)} m od tego miejsca.</p>`;return;}
+  const tot=V.filter(x=>x.stay).reduce((a,x)=>a+(x.t1-x.t0),0);
+  out.innerHTML=`<p>Znaleziono: <b>${V.length}</b> · pobyty: ${V.filter(x=>x.stay).length} (łącznie ${fmtDur(tot/1000)}) · przejazdy: ${V.filter(x=>!x.stay).length}</p><div class="scroll"><table>`+
+    V.map((x,i)=>`<tr data-v="${i}" style="cursor:pointer"><td>${dayLabel(x.k)}</td><td>${fmtT(x.t0)}${x.t1-x.t0>=60000?"–"+fmtT(x.t1):""}</td><td>${x.stay?`<span class="pill" style="background:${ccol("stay")}">POSTÓJ</span> `+fmtDur((x.t1-x.t0)/1000):`<span class="pill" style="background:${ccol("drive")}">PRZEJAZD</span>`}</td><td class="note">${nf0.format(x.dm)} m</td></tr>`).join("")+`</table></div><p class="note">Dotknij wiersza, aby otworzyć ten dzień.</p>`;
+  out.querySelectorAll("[data-v]").forEach(tr=>tr.onclick=async()=>{const x=V[+tr.dataset.v];closeDlg();$("sumView").style.display="none";$("view").style.display="";cur=x.k;$("daySel").value=cur;await show(cur);
+    if(MAP){MAP.setView([o.lat,o.lon],15);}});}
+
+/* ================= 2. ostrzeżenie o przerwie w zapisie ================= */
+function gapWarn(k,A){const P=A.P;if(!P.length)return"";let h="";
+  if(k===dateKey(Date.now())){const age=Date.now()-P[P.length-1].t;
+    if(age>45*60000)h+=`<div class="card" style="border:2px solid #c92a2a"><b style="color:#c92a2a">⚠ Brak nowych danych od ${fmtDur(age/1000)}</b> (ostatni zapis ${fmtTs(P[P.length-1].t)})<br>
+      <span class="note">Możliwe przyczyny: GPSLogger zatrzymany albo uśpiony przez telefon, telefon bez internetu (plik wysyłany jest co 30 min), telefon wyłączony lub nie zsynchronizowano jeszcze aplikacji (przycisk „Synchronizuj”). Sprawdź, czy GPSLogger zapisuje.</span></div>`;}
+  const G=A.segs.filter(s=>s.gap&&s.t1-s.t0>30*60000);
+  if(G.length)h+=`<div class="card" style="border:2px solid #e8590c"><b style="color:#e8590c">⚠ Przerwy w zapisie ponad 30 min:</b> ${G.map(s=>`${fmtT(s.t0)}–${fmtT(s.t1)} (${fmtDur((s.t1-s.t0)/1000)})`).join(", ")}<br><span class="note">W tym czasie położenie nie jest znane.</span></div>`;
+  return h;}
+
+/* ================= 3. raport dnia ================= */
+function dayReport(k){const lines=[];const A=curA;
+  lines.push("OŚ CZASU – "+dayLabel(k));
+  const agg={};for(const s of A.segs){if(s.gap)continue;agg[s.c]=agg[s.c]||{t:0,d:0,n:0};agg[s.c].t+=(s.t1-s.t0)/1000;agg[s.c].d+=s.d||0;agg[s.c].n++;}
+  const sm=[];if(agg.drive)sm.push(`jazda ${fmtKm(agg.drive.d)} (${fmtDur(agg.drive.t)}, przejazdów: ${agg.drive.n})`);if(agg.walk)sm.push(`chód ${fmtKm(agg.walk.d)}`);if(agg.stay)sm.push(`pobyty: ${agg.stay.n}`);
+  if(sm.length)lines.push("Podsumowanie: "+sm.join(", "));lines.push("");
+  let pend=false;
+  document.querySelectorAll("#tl>li").forEach(li=>{const s=A.segs[+li.dataset.q];if(!s)return;const col=li.children[2];if(!col)return;
+    const parts=[...col.children].filter(e=>!e.classList.contains("act")&&!e.classList.contains("badge")).map(e=>e.innerText.trim()).filter(Boolean);
+    if(parts.some(t=>/ustalanie|szukanie adresu/.test(t)))pend=true;
+    lines.push(`${fmtTs(s.t0)}–${fmtTs(s.t1)}  ${parts[0]||""}`);for(const t of parts.slice(1))for(const l of t.split("\n"))if(l.trim())lines.push("    "+l.trim());lines.push("");});
+  lines.push("Źródło: zapis GPS z telefonu"+(A.watch>0?" i zegarka":"")+"; adresy, miejscowości i drogi: OpenStreetMap. Czas polski.");
+  const txt=lines.join("\n");
+  dlg(`<h2>Raport dnia</h2>${pend?`<p class="note" style="color:#c92a2a">Część adresów lub opisów tras jeszcze się uzupełnia – zamknij, odczekaj chwilę i otwórz raport ponownie.</p>`:""}
+    <textarea id="rT" readonly style="width:100%;height:50vh;font-family:monospace;font-size:12px">${esc(txt)}</textarea>
+    <div class="row" style="margin-top:8px"><button id="rC" class="pri">Kopiuj</button><button id="rP">PDF / drukuj</button><button id="rF">Zapisz plik</button>${driveReady()?'<button id="rD">Na Dysk</button>':""}<span class="grow"></span><button id="rX">Zamknij</button></div>`);
+  $("rX").onclick=closeDlg;
+  $("rC").onclick=async()=>{try{await navigator.clipboard.writeText(txt);msg("Raport skopiowany.");}catch(e){$("rT").select();document.execCommand("copy");msg("Raport skopiowany.");}};
+  $("rF").onclick=()=>out(`raport-${k}.txt`,"\ufeff"+txt,"text/plain",false);
+  if($("rD"))$("rD").onclick=()=>out(`raport-${k}.txt`,"\ufeff"+txt,"text/plain",true).catch(e=>msg("Dysk: "+e.message,true));
+  $("rP").onclick=()=>{const w=window.open("","_blank");if(!w){msg("Przeglądarka zablokowała nowe okno.",true);return;}
+    w.document.write(`<!DOCTYPE html><html lang="pl"><head><meta charset="utf-8"><title>Raport ${k}</title><style>body{font-family:Arial,sans-serif;font-size:12px;margin:16mm}pre{white-space:pre-wrap;font-family:inherit}</style></head><body><pre>${esc(txt)}</pre></body></html>`);w.document.close();setTimeout(()=>{try{w.focus();w.print();}catch(e){}},400);};}
+
+/* ================= 4. moje miejsca: rodzaje i zestawienie ================= */
+const PKIND=["Inne","Dom","Praca","Służba","OSP / remiza","Rodzina","Znajomi","Sklep / usługi","Zdrowie"];
+async function placeSummary(m,rows){const el=$("plSum");if(!el)return;const agg=new Map(),un=[];
+  for(const k of rows){const d=await loadDay(k);if(!d)continue;const A=analyzeDay(d);
+    for(const s of A.segs){if(s.c!=="stay")continue;const pl=placeAt(s.lat,s.lon);const dt=(s.t1-s.t0)/1000;
+      if(pl){const a=agg.get(pl.p.id)||{p:pl.p,t:0,n:0,days:new Set()};a.t+=dt;a.n++;a.days.add(k);agg.set(pl.p.id,a);}
+      else{let c=un.find(c=>hav(c.lat,c.lon,s.lat,s.lon)<=100);if(!c){c={lat:s.lat,lon:s.lon,t:0,n:0,days:new Set()};un.push(c);}c.t+=dt;c.n++;c.days.add(k);}}}
+  if(!$("plSum"))return;
+  const L=[...agg.values()].sort((a,b)=>b.t-a.t);const byK={};for(const a of L){const kk=a.p.kind||"Inne";byK[kk]=(byK[kk]||0)+a.t;}
+  let h=`<b>Czas w moich miejscach</b>`;
+  if(L.length)h+=`<div class="scroll"><table><tr><th>Miejsce</th><th>Rodzaj</th><th>Czas</th><th>Wizyty</th><th>Dni</th></tr>${L.map(a=>`<tr><td>${esc(a.p.name)}</td><td>${esc(a.p.kind||"Inne")}</td><td>${fmtDur(a.t)}</td><td>${a.n}</td><td>${a.days.size}</td></tr>`).join("")}</table></div>
+    <p class="note">Wg rodzaju: ${Object.entries(byK).map(([kk,t])=>`${esc(kk)} ${fmtDur(t)}`).join(" · ")}</p>`;
+  else h+=`<p class="note">Brak nazwanych miejsc. Nazwij miejsce przyciskiem „Nazwij miejsce” przy pobycie albo poniżej.</p>`;
+  const U=un.filter(c=>c.t>=3600).sort((a,b)=>b.t-a.t).slice(0,6);
+  if(U.length){h+=`<p style="margin-top:10px"><b>Często odwiedzane, bez nazwy</b></p>`+U.map((c,i)=>`<div class="row" style="margin:4px 0"><span class="grow"><span data-u="${i}">…</span> <span class="note">· ${fmtDur(c.t)}, wizyt ${c.n}, dni ${c.days.size}</span></span><button class="sm" data-n="${i}">Nazwij</button></div>`).join("");}
+  el.innerHTML=h;
+  U.forEach((c,i)=>{const e=el.querySelector(`[data-u="${i}"]`);if(e)fillAddr(e,c.lat,c.lon);});
+  el.querySelectorAll("[data-n]").forEach(b=>b.onclick=()=>{const c=U[+b.dataset.n];namePlace({lat:c.lat,lon:c.lon,spread:30});});}
 </script>
 </body></html>
