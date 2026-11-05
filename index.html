@@ -303,12 +303,13 @@ function fromCols(c,src){const n=c?c.t.length:0,o=new Array(n);const nn=x=>isNaN
   for(let i=0;i<n;i++)o[i]={t:c.t[i],lat:c.lat[i],lon:c.lon[i],sp:nn(c.sp[i]),acc:nn(c.acc[i]),hr:nn(c.hr[i]),ele:nn(c.ele[i]),src};return o;}
 function mergePts(a,b){const all=a.concat(b).filter(p=>isFinite(p.t)&&isFinite(p.lat)&&isFinite(p.lon)&&Math.abs(p.lat)<=90&&Math.abs(p.lon)<=180).sort((x,y)=>x.t-y.t);
   const u=[];for(const p of all){const L=u[u.length-1];if(L&&p.t-L.t<300){if(p.acc!=null&&(L.acc==null||p.acc<L.acc))u[u.length-1]=p;continue;}u.push(p);}return u;}
+const APPVER="5.11.2026 22:15";
 let CALLS=[];
 async function initStore(){
   const st=$("store");
   try{await idbOpen();const ix=await kvGet("index");if(ix&&ix.days)INDEX={days:ix.days};PLACES=(await kvGet("places"))||[];CALLS=(await kvGet("calls"))||[];
     let per=false;try{per=navigator.storage&&navigator.storage.persist?await navigator.storage.persist():false;}catch(e){}
-    st.textContent="Dane w telefonie"+(per?" (trwałe)":"");}
+    st.textContent="Dane w telefonie"+(per?" (trwałe)":"")+" · wersja "+APPVER;}
   catch(e){IDB=null;st.textContent="Brak zapisu – dane do zamknięcia strony";}
   refreshDays();
 }
