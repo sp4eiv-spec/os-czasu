@@ -75,6 +75,7 @@ svg{display:block;width:100%;height:auto}
 .cd.today{outline:2px solid var(--acc)}
 .cn{font-weight:600}.ck{font-variant-numeric:tabular-nums;color:var(--mut);font-size:11px}
 .cb{display:flex;height:4px;border-radius:2px;overflow:hidden;margin-top:3px}
+.call{width:24px;height:24px;border-radius:50%;border:2px solid #000;color:#fff;font-size:13px;line-height:20px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.5)}
 </style>
 </head>
 <body>
@@ -299,9 +300,10 @@ function fromCols(c,src){const n=c?c.t.length:0,o=new Array(n);const nn=x=>isNaN
   for(let i=0;i<n;i++)o[i]={t:c.t[i],lat:c.lat[i],lon:c.lon[i],sp:nn(c.sp[i]),acc:nn(c.acc[i]),hr:nn(c.hr[i]),ele:nn(c.ele[i]),src};return o;}
 function mergePts(a,b){const all=a.concat(b).filter(p=>isFinite(p.t)&&isFinite(p.lat)&&isFinite(p.lon)&&Math.abs(p.lat)<=90&&Math.abs(p.lon)<=180).sort((x,y)=>x.t-y.t);
   const u=[];for(const p of all){const L=u[u.length-1];if(L&&p.t-L.t<300){if(p.acc!=null&&(L.acc==null||p.acc<L.acc))u[u.length-1]=p;continue;}u.push(p);}return u;}
+let CALLS=[];
 async function initStore(){
   const st=$("store");
-  try{await idbOpen();const ix=await kvGet("index");if(ix&&ix.days)INDEX={days:ix.days};PLACES=(await kvGet("places"))||[];
+  try{await idbOpen();const ix=await kvGet("index");if(ix&&ix.days)INDEX={days:ix.days};PLACES=(await kvGet("places"))||[];CALLS=(await kvGet("calls"))||[];
     let per=false;try{per=navigator.storage&&navigator.storage.persist?await navigator.storage.persist():false;}catch(e){}
     st.textContent="Dane w telefonie"+(per?" (trwałe)":"");}
   catch(e){IDB=null;st.textContent="Brak zapisu – dane do zamknięcia strony";}
@@ -525,13 +527,13 @@ function fillAddr(el,la,lo,prefix){
 
 /* ================= dni ================= */
 let cur=null;
-function refreshDays(sel){
+function refreshDays(sel,keep){
   const ks=Object.keys(INDEX.days).sort();
   $("dayBar").style.display=ks.length?"":"none";$("empty").style.display=ks.length?"none":"";
   const Sx=$("daySel");Sx.innerHTML="";
   for(const k of ks.slice().reverse()){const o=document.createElement("option");o.value=k;o.textContent=dayLabel(k)+" · "+fmtKm(INDEX.days[k].dist||0);Sx.appendChild(o);}
   if(!ks.length){$("view").innerHTML="";return;}
-  cur=sel&&INDEX.days[sel]?sel:(cur&&INDEX.days[cur]?cur:ks[ks.length-1]);Sx.value=cur;show(cur);
+  cur=sel&&INDEX.days[sel]?sel:(cur&&INDEX.days[cur]?cur:ks[ks.length-1]);Sx.value=cur;show(cur,keep);
 }
 $("daySel").onchange=e=>{cur=e.target.value;show(cur);};
 $("prev").onclick=()=>stepDay(1);$("next").onclick=()=>stepDay(-1);
@@ -570,7 +572,7 @@ async function show(k,keepView){
   let d=null;try{d=await loadDay(k);}catch(e){}
   if(tok!==renderTok)return;
   if(!d){V.innerHTML='<div class="card note">Nie udało się wczytać dnia.</div>';return;}
-  const A=analyzeDay(d);curA=A;const {P,segs,events}=A;
+  const A=analyzeDay(d);curA=A;const {P,segs,events}=A;A.calls=dayCalls(k,P,segs);
   const agg={};for(const c in CLS)agg[c]={t:0,d:0};let mx=null,mxAt=null;
   for(const s of segs){agg[s.c].t+=(s.t1-s.t0)/1000;agg[s.c].d+=s.d||0;if(s.max!=null&&s.c!=="stay"&&(mx==null||s.max>mx)){mx=s.max;mxAt=s.maxAt;}}
   const mov=["walk","run","bike","drive"];const mvT=mov.reduce((a,c)=>a+agg[c].t,0),mvD=mov.reduce((a,c)=>a+agg[c].d,0);
@@ -592,10 +594,12 @@ async function show(k,keepView){
   h+=`<div class="card"><b>Prędkość${P.some(p=>p.hr!=null)?" i tętno":""}</b><div id="chart"></div></div>`;
   h+=`<div class="card"><div class="row" style="margin-bottom:4px"><b class="grow">Oś czasu</b>
       <button class="sm" id="eCsv">CSV</button><button class="sm" id="eGpx">GPX</button>${driveReady()?'<button class="sm" id="eDrv">Na Dysk</button>':""}<button class="sm" id="eDel">Usuń dzień</button></div><ul class="tl" id="tl"></ul></div>`;
+  h+=callsCard(A);
+  let mv=null;const sy=window.scrollY;if(keepView&&MAP){mv={c:MAP.getCenter(),z:MAP.getZoom()};}
   if(MAP){MAP.remove();MAP=null;}
   V.innerHTML=h;
   $("cMode").value=colorMode;$("cMode").onchange=e=>{colorMode=e.target.value;drawTrack();};
-  initMap();drawTrack();drawChart();buildTimeline(d);setupPlay();
+  initMap();if(mv&&MAP){MAP.setView(mv.c,mv.z);_kb=true;}drawTrack();drawChart();buildTimeline(d);setupPlay();bindCalls();if(mv)window.scrollTo(0,sy);
   $("eCsv").onclick=()=>exportCSV(k,false);$("eGpx").onclick=()=>exportGPX(k,false);if($("eDrv"))$("eDrv").onclick=async()=>{try{await exportCSV(k,true);await exportGPX(k,true);}catch(e){msg("Dysk: "+e.message,true);}};$("eDel").onclick=()=>askDelete(k);
 }
 function initMap(){
@@ -612,7 +616,7 @@ function drawTrack(){
   const {P,segs,events}=curA;const lg=$("legend");
   if(colorMode==="speed")lg.innerHTML=VLBL.map((l,i)=>`<span><span class="sw" style="background:${VCOL[i]}"></span>${l}</span>`).join("")+" km/h";
   else lg.innerHTML=["drive","walk","run","bike"].map(c=>`<span><span class="sw" style="background:${ccol(c)}"></span>${CLS[c].n}</span>`).join("");
-  lg.innerHTML+=` · <span><span class="dot" style="background:${EVC.accel}"></span>przyspieszenie</span><span><span class="dot" style="background:${EVC.brake}"></span>hamowanie</span><span><span class="dot" style="background:${EVC.corner}"></span>zakręt</span><span>▲ maks.</span><span>⬤ pobyt</span><span>- - brak pomiarów</span><br><span>Dotknij trasy, aby zobaczyć godzinę i prędkość.</span>`;
+  lg.innerHTML+=` · <span><span class="dot" style="background:${EVC.accel}"></span>przyspieszenie</span><span><span class="dot" style="background:${EVC.brake}"></span>hamowanie</span><span><span class="dot" style="background:${EVC.corner}"></span>zakręt</span><span>▲ maks.</span><span>⬤ pobyt</span><span><span class="dot" style="background:${CALLC[1]}"></span>☎ połączenie</span><span>- - brak pomiarów</span><br><span>Dotknij trasy, aby zobaczyć godzinę i prędkość.</span>`;
   if(!MAP)return;LAY.clearLayers();
   const segOf=new Int32Array(P.length).fill(-1);segs.forEach((s,q)=>{if(s.gap)return;for(let i=s.i0;i<=s.i1;i++)segOf[i]=q;});
   /* linia: pomijane punkty pobytów; kolor wg prędkości lub rodzaju; przerwy > 15 s linią przerywaną */
@@ -636,6 +640,9 @@ function drawTrack(){
   for(const e of events){L.circleMarker([e.lat,e.lon],{radius:9,color:"#fff",weight:2,fillColor:EVC[e.type],fillOpacity:1,bubblingMouseEvents:false}).addTo(LAY)
     .bindPopup(`<b>${EVN[e.type]}</b><br>${fmtTs(e.t)}<br>${e.type==="corner"?"przyspieszenie boczne":"zmiana prędkości"}: ${nf1.format(e.ms2)} m/s² (${nf2.format(e.g)} g)`+
       (e.kmhs?`<br>${nf1.format(e.kmhs)} km/h w 1 s`:"")+(e.type!=="corner"?`<br>${fmtV(e.v0)} → ${fmtV(e.v1)}`:`<br>przy ${fmtV(P.find(p=>p.t===e.t).v)}`));}
+  /* połączenia telefoniczne */
+  CALLM=[];for(const c of (curA.calls||[])){if(c.lat==null){CALLM.push(null);continue;}
+    const m=L.marker([c.lat,c.lon],{icon:L.divIcon({className:"",html:`<div class="call" style="background:${CALLC[c.ty]||CALLC[3]}">☎</div>`,iconSize:[24,24],iconAnchor:[12,12]}),bubblingMouseEvents:false,zIndexOffset:500}).addTo(LAY).bindPopup(()=>callPopup(c));CALLM.push(m);}
   /* maksymalne prędkości przejazdów */
   for(const s of segs){if(s.c!=="drive"&&s.c!=="bike"&&s.c!=="run")continue;if(s.maxAt==null)continue;const p=P[s.maxAt];
     L.marker([p.lat,p.lon],{icon:L.divIcon({className:"",html:`<div class="lbl">▲ ${nf0.format(s.max)}</div>`,iconSize:null,iconAnchor:[-6,10]})}).addTo(LAY)
@@ -736,6 +743,42 @@ function setupPlay(){
   $("pBtn").onclick=()=>{playing=!playing;$("pBtn").textContent=playing?"⏸":"▶";last=0;if(tt>=t1)tt=t0;if(playing)requestAnimationFrame(loop);};
   upd();
 }
+
+/* ================= połączenia telefoniczne (SMS Backup & Restore, calls-*.xml) ================= */
+const CALLN={1:"Przychodzące",2:"Wychodzące",3:"Nieodebrane",4:"Poczta głosowa",5:"Odrzucone",6:"Zablokowane",7:"Odebrane na innym urządzeniu"};
+const CALLC={1:"#2f9e44",2:"#1971c2",3:"#868e96",4:"#868e96",5:"#868e96",6:"#868e96",7:"#2f9e44"};
+let CALLM=[];
+function parseCalls(txt){
+  const x=new DOMParser().parseFromString(txt,"text/xml");if(x.getElementsByTagName("parsererror").length)throw new Error("plik połączeń jest uszkodzony");
+  const out=[];for(const e of x.getElementsByTagName("call")){const t=+e.getAttribute("date");if(!isFinite(t))continue;
+    const nm=e.getAttribute("contact_name");out.push({t,d:+e.getAttribute("duration")||0,ty:+e.getAttribute("type")||0,n:e.getAttribute("number")||"",nm:nm&&nm!=="(Unknown)"&&nm!=="null"?nm:""});}
+  return out.sort((a,b)=>a.t-b.t);}
+/* położenie w chwili rozpoczęcia połączenia: interpolacja między pomiarami (przerwa ≤ 15 min) albo najbliższy pomiar (≤ 10 min) */
+function posAt(P,t){if(!P.length)return null;let lo=0,hi=P.length-1;
+  if(t<=P[0].t)return t>=P[0].t-600000?{lat:P[0].lat,lon:P[0].lon,dt:P[0].t-t}:null;
+  if(t>=P[hi].t)return t<=P[hi].t+600000?{lat:P[hi].lat,lon:P[hi].lon,dt:t-P[hi].t}:null;
+  while(hi-lo>1){const m=(lo+hi)>>1;if(P[m].t<=t)lo=m;else hi=m;}
+  const a=P[lo],b=P[hi],g=b.t-a.t;
+  if(g<=900000){const f=g?(t-a.t)/g:0;return{lat:a.lat+(b.lat-a.lat)*f,lon:a.lon+(b.lon-a.lon)*f,dt:Math.min(t-a.t,b.t-t)};}
+  const n=t-a.t<b.t-t?a:b;return Math.abs(n.t-t)<=600000?{lat:n.lat,lon:n.lon,dt:Math.abs(n.t-t)}:null;}
+function dayCalls(k,P,segs){let nr=0;const stayNr=new Map();segs.forEach(s=>{if(s.c==="stay")stayNr.set(s,++nr);});
+  return CALLS.filter(c=>dateKey(c.t)===k).map(c=>{const p=posAt(P,c.t);const s=segs.find(s=>c.t>=s.t0&&c.t<=s.t1);
+    return Object.assign({},c,p?{lat:p.lat,lon:p.lon,dt:p.dt}:{lat:null,lon:null},{seg:s?(s.c==="stay"?"Pobyt "+stayNr.get(s):s.gap?"brak danych GPS":CLS[s.c].n):""});});}
+function callPopup(c){const row=(k,v)=>`<tr><td style="color:#666;padding-right:8px">${k}</td><td><b>${v}</b></td></tr>`;
+  const talk=c.d>0;
+  return `<div style="font-size:15px;font-weight:700;margin-bottom:4px;color:${CALLC[c.ty]||"#333"}">☎ ${CALLN[c.ty]||"Połączenie"}</div><table style="font-size:13px">`+
+    row("Kto",esc(c.nm||"nieznany numer"))+row("Numer",c.n?`<a href="tel:${esc(c.n)}">${esc(c.n)}</a>`:"ukryty")+
+    row("Początek",fmtTs(c.t))+(talk?row("Koniec",fmtTs(c.t+c.d*1000))+row("Rozmowa",fmtDur(c.d)):row("Rozmowa","nie było"))+
+    (c.seg?row("W tym czasie",esc(c.seg)):"")+`</table>`+
+    (c.lat!=null&&c.dt>60000?`<div class="note">położenie przybliżone – najbliższy pomiar GPS ${fmtDur(c.dt/1000)} od połączenia</div>`:"")+
+    (talk?`<div class="note">koniec = początek + czas rozmowy (bez czasu dzwonienia)</div>`:"");}
+function callsCard(A){const C=A.calls||[];if(!C.length)return "";
+  return `<div class="card"><b>Połączenia telefoniczne (${C.length})</b><ul class="tl" id="cl">`+C.map((c,i)=>`<li data-c="${i}"><div class="tm">${fmtT(c.t)}<br>${c.d>0?fmtT(c.t+c.d*1000):""}</div><div class="bar" style="background:${CALLC[c.ty]||"#868e96"}"></div><div>
+    <div class="ti">☎ ${esc(c.nm||c.n||"nieznany numer")} · ${CALLN[c.ty]||"Połączenie"}${c.d>0?" · "+fmtDur(c.d):""}</div>
+    <div class="de">${c.nm&&c.n?esc(c.n)+" · ":""}${fmtTs(c.t)}${c.d>0?" – "+fmtTs(c.t+c.d*1000):""}${c.seg?" · "+esc(c.seg):""}${c.lat==null?" · brak położenia":""}</div><div class="ad" data-a></div></div></li>`).join("")+`</ul></div>`;}
+function bindCalls(){const C=(curA&&curA.calls)||[];document.querySelectorAll("#cl>li").forEach(li=>{const i=+li.dataset.c,c=C[i];
+  if(c.lat!=null)fillAddr(li.querySelector("[data-a]"),c.lat,c.lon);
+  li.onclick=()=>{const m=CALLM[i];if(!m||!MAP)return;MAP.setView(m.getLatLng(),17);m.openPopup();document.getElementById("map").scrollIntoView({block:"nearest",behavior:"smooth"});};});}
 /* ================= dialogi ================= */
 function dlg(html){$("dlgBox").innerHTML=html;$("dlg").classList.add("on");}
 function closeDlg(){$("dlg").classList.remove("on");}
@@ -898,7 +941,7 @@ $("bSum").onclick=()=>{
 
 /* ================= Dysk Google ================= */
 const SCOPES="https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file";
-const DDEF={clientId:"",folder:"GPSLogger for Android",syncAuto:true,bakAuto:true};
+const DDEF={clientId:"",folder:"GPSLogger for Android",syncAuto:true,bakAuto:true,calls:true};
 let D=Object.assign({},DDEF);try{Object.assign(D,JSON.parse(localStorage.getItem("osczasu-drive")||"{}"));}catch(e){}
 const saveD=()=>{try{localStorage.setItem("osczasu-drive",JSON.stringify(D));}catch(e){}};
 let TOK=null;try{const t=JSON.parse(localStorage.getItem("osczasu-tok")||"null");if(t&&t.exp>Date.now()+60000)TOK=t;}catch(e){}
@@ -972,14 +1015,25 @@ async function driveSync(interactive){
     files=files.filter(f=>/\.(fit|zip|csv)$/i.test(f.name)||!fitStems.has(f.name.replace(/\.[^.]+$/,"").toLowerCase())).sort((a,b)=>a.name.localeCompare(b.name));
     const st=(IDB&&await kvGet("sync"))||{};
     const todo=files.filter(f=>st[f.id]!==f.modifiedTime);
-    let keys=[],n=0,errs=[];
+    let keys=[],n=0,errs=[];const lastBefore=Object.keys(INDEX.days).sort().pop();
     for(let i=0;i<todo.length;i++){const f=todo[i];msg(`Dysk: pobieranie ${i+1}/${todo.length} – ${f.name}`);
       const buf=await(await gapi(`files/${f.id}?alt=media`,{},interactive)).arrayBuffer();
       const r=await importBuffers([{name:f.name,buf}]);keys=keys.concat(r.keys);n+=r.n;errs=errs.concat(r.errs);
       st[f.id]=f.modifiedTime;if(IDB)await kvSet("sync",st);}
+    let callsNew=0;
+    if(D.calls){try{const q="name contains 'calls-' and trashed=false and mimeType!='application/vnd.google-apps.folder'";
+      const r=await(await gapi("files?q="+encodeURIComponent(q)+"&orderBy=modifiedTime desc&pageSize=10&fields=files(id,name,modifiedTime)",{},interactive)).json();
+      const f=(r.files||[]).find(f=>/^calls-.*\.xml$/i.test(f.name));
+      if(f&&st.__calls!==f.id+"@"+f.modifiedTime){msg("Dysk: pobieranie połączeń – "+f.name);
+        const arr=parseCalls(await(await gapi(`files/${f.id}?alt=media`,{},interactive)).text());
+        const old=new Set(CALLS.map(c=>c.t));callsNew=arr.filter(c=>!old.has(c.t)).length;
+        const m=new Map(CALLS.map(c=>[c.t,c]));for(const c of arr)m.set(c.t,c);CALLS=[...m.values()].sort((a,b)=>a.t-b.t);
+        if(IDB)await kvSet("calls",CALLS);st.__calls=f.id+"@"+f.modifiedTime;if(IDB)await kvSet("sync",st);}}
+      catch(e){errs.push("połączenia: "+e.message);}}
     D.lastSync=Date.now();saveD();
-    msg((todo.length?`Dysk: przetworzono plików ${todo.length}, punktów ${nf0.format(n)}.`:"Dysk: brak nowych plików.")+(missing.length?` Brak folderu: ${missing.join(", ")}.`:"")+(errs.length?" Problemy: "+errs.join(" · "):""),!!errs.length);
-    if(keys.length){keys.sort();refreshDays(keys[keys.length-1]);autoBackup();}
+    msg((todo.length?`Dysk: przetworzono plików ${todo.length}, punktów ${nf0.format(n)}.`:"Dysk: brak nowych plików.")+(callsNew?` Nowe połączenia: ${callsNew}.`:"")+(missing.length?` Brak folderu: ${missing.join(", ")}.`:"")+(errs.length?" Problemy: "+errs.join(" · "):""),!!errs.length);
+    if(keys.length){keys.sort();refreshDays(interactive||cur===lastBefore||!cur?keys[keys.length-1]:cur,!interactive&&(cur===keys[keys.length-1]));autoBackup();}
+    else if(callsNew&&cur)show(cur,true);
   }catch(e){msg("Dysk: "+e.message,true);}
   finally{syncing=false;driveUI();}
 }
@@ -1013,14 +1067,15 @@ function driveDlg(){
    <p class="note">Aplikacja pobiera nowe pliki GPS Loggera z podanego folderu i zapisuje kopię oraz eksporty w folderze „Oś czasu”. Wymaga identyfikatora klienta OAuth (instrukcja: przycisk „Instrukcja”) i strony otwartej przez https://.</p>
    <label class="f" style="display:block">Identyfikator klienta OAuth<br><input id="gC" type="text" style="width:100%" value="${esc(D.clientId)}" placeholder="…apps.googleusercontent.com"></label>
    <label class="f" style="display:block">Foldery z nagraniami (kilka – oddziel przecinkiem; podfoldery są przeszukiwane)<br><input id="gF" type="text" style="width:100%" value="${esc(D.folder)}"></label>
-   <label class="f">Synchronizuj przy otwarciu (gdy zalogowano) <input id="gS" type="checkbox" ${D.syncAuto?"checked":""}></label>
+   <label class="f">Synchronizuj przy otwarciu i co 5 minut (gdy zalogowano) <input id="gS" type="checkbox" ${D.syncAuto?"checked":""}></label>
+   <label class="f">Połączenia telefoniczne na mapie (pliki calls-….xml z aplikacji SMS Backup &amp; Restore) <input id="gK" type="checkbox" ${D.calls?"checked":""}></label>
    <label class="f">Automatyczna kopia na Dysk po zmianach <input id="gB" type="checkbox" ${D.bakAuto?"checked":""}></label>
    <p class="note">Adres tej strony do wpisania w Google Cloud jako „Authorized JavaScript origin”: <b>${esc(location.origin)}</b>${location.protocol!=="https:"?" – <b>strona nie jest otwarta przez https://, logowanie Google nie zadziała</b>":""}</p>
    <div class="row"><button id="gX">Wyloguj</button><button id="gR">Pobierz wszystko ponownie</button><span class="grow"></span><button id="gQ">Anuluj</button><button id="gOk" class="pri">Zapisz i połącz</button></div>`);
   $("gQ").onclick=closeDlg;
   $("gX").onclick=()=>{try{if(TOK&&window.google&&google.accounts)google.accounts.oauth2.revoke(TOK.access_token,()=>{});}catch(e){}TOK=null;try{localStorage.removeItem("osczasu-tok");}catch(e){}driveUI();closeDlg();msg("Wylogowano z Google.");};
   $("gR").onclick=async()=>{if(IDB)await kvSet("sync",{});closeDlg();driveSync(true);};
-  $("gOk").onclick=()=>{D.clientId=$("gC").value.trim();D.folder=$("gF").value.trim()||DDEF.folder;D.syncAuto=$("gS").checked;D.bakAuto=$("gB").checked;saveD();closeDlg();driveUI();if(D.clientId)driveSync(true);};
+  $("gOk").onclick=()=>{D.clientId=$("gC").value.trim();D.folder=$("gF").value.trim()||DDEF.folder;D.syncAuto=$("gS").checked;D.bakAuto=$("gB").checked;D.calls=$("gK").checked;saveD();closeDlg();driveUI();if(D.clientId)driveSync(true);};
 }
 
 /* ================= kalendarz ================= */
@@ -1040,5 +1095,9 @@ if("serviceWorker" in navigator&&location.protocol==="https:"){navigator.service
 (async()=>{await initStore();driveUI();
   if(driveReady()&&D.syncAuto&&tokOk())driveSync(false);})();
 setInterval(driveUI,60000);
+/* samoczynne odświeżanie: co 5 minut i po powrocie do aplikacji (tylko gdy logowanie Google jest ważne) */
+function autoSync(){if(document.visibilityState==="visible"&&driveReady()&&D.syncAuto&&tokOk()&&!syncing)driveSync(false);}
+setInterval(autoSync,300000);
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&Date.now()-(D.lastSync||0)>120000)autoSync();});
 </script>
 </body></html>
