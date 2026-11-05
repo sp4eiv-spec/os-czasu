@@ -525,13 +525,52 @@ function addrTxt(r){if(!r)return "adres niedostępny";
 async function townAt(la,lo){const k="U"+la.toFixed(3)+","+lo.toFixed(3);if(GEO.has(k))return GEO.get(k);
   if(IDB){try{const c=await kvGet(k,"geo");if(c){GEO.set(k,c);return c;}}catch(e){}}
   return new Promise(res=>{geoQ.push({la,lo,k,res,town:true});pumpGeo();});}
-/* miejscowości na trasie. Kandydaci: zapytania co ok. 1 km. Miejscowość jest wpisywana tylko wtedy, gdy ślad przechodzi
-   przez nią naprawdę: najbliższy punkt śladu jest w zasięgu jej środka (przysiółek 350 m, wieś 600 m, wieś z granicą 800 m,
-   miasto 1,5–3 km lub wewnątrz granicy miasta). Godzina = chwila największego zbliżenia do środka miejscowości. */
-const TOWNR={isolated_dwelling:150,farm:150,hamlet:350,neighbourhood:500,quarter:700,suburb:800,village:600,town:1500,city:3000};
+/* ================= trasa: miejscowości i drogi (OpenStreetMap Overpass, zapasowo Nominatim) =================
+   Miejscowość jest wpisywana tylko wtedy, gdy ślad przechodzi przez nią naprawdę: najbliższy punkt śladu jest
+   w zasięgu punktu miejscowości z mapy (osada 250 m, przysiółek 500 m, wieś 900 m, miasto 2 km, duże miasto 4 km).
+   Godzina = chwila największego zbliżenia. Drogi: dla punktów śladu co ok. 150 m najbliższa droga z mapy (≤ 30 m). */
+const TOWNR={isolated_dwelling:250,farm:250,hamlet:500,neighbourhood:500,quarter:800,suburb:800,village:900,town:2000,city:4000};
 function townOk(r,dmin){if(!r||!r.town)return false;if(r.osm==="relation"&&(r.type==="town"||r.type==="city"))return true;
-  const R=r.osm==="relation"&&r.type==="village"?800:(TOWNR[r.type]||500);return dmin<=R;}
-async function fillTowns(el,s){const P=curA.P;const pts=[];let acc=0,step=Math.max(1000,(s.d||0)/80);
+  const R=r.osm==="relation"&&r.type==="village"?900:(TOWNR[r.type]||500);return dmin<=R;}
+function roadLbl(t,foot){const ref=(t.ref||"").split(";")[0].trim().replace(/\s+/g,"");
+  if(ref){if(/^[AS]\d+$/i.test(ref))return ref.toUpperCase();if(/^\d{1,2}$/.test(ref))return"DK "+ref;if(/^\d{3}$/.test(ref))return"DW "+ref;if(/^\d{3,4}[A-Z]$/i.test(ref))return"DP "+ref.toUpperCase();return ref;}
+  if(t.name)return t.name;return foot?"":"";}
+const OVP=["https://overpass-api.de/api/interpreter","https://overpass.kumi.systems/api/interpreter"];
+async function overpass(q){for(const u of OVP){try{const x=await fetch(u,{method:"POST",body:"data="+encodeURIComponent(q),headers:{"Content-Type":"application/x-www-form-urlencoded"},signal:AbortSignal.timeout(40000)});
+  if(x.ok)return await x.json();}catch(e){}}return null;}
+async function routeInfo(s){const P=curA.P;const key="rt2-"+s.t0+"-"+s.t1+"-"+s.c;
+  if(IDB){try{const c=await kvGet(key);if(c)return c;}catch(e){}}
+  const foot=s.c==="walk"||s.c==="run";const spc=foot?40:150;
+  const idx=[s.i0];let acc=0,step=Math.max(spc,(s.d||0)/400);
+  for(let i=s.i0+1;i<=s.i1;i++){acc+=hav(P[i-1].lat,P[i-1].lon,P[i].lat,P[i].lon);if(acc>=step){idx.push(i);acc=0;}}if(idx[idx.length-1]!==s.i1)idx.push(s.i1);
+  const poly=idx.map(i=>P[i].lat.toFixed(5)+","+P[i].lon.toFixed(5)).join(",");
+  const q=`[out:json][timeout:30];node(around:2000,${poly})[place~"^(city|town|village|hamlet|isolated_dwelling|suburb|quarter|neighbourhood)$"];out body;`+
+    `way(around:30,${poly})[highway~"^(motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|unclassified|residential|living_street|service|track|road${foot?"|footway|path|pedestrian|cycleway|steps":""})$"];out tags geom;`;
+  const o=await overpass(q);if(!o||!o.elements)return null;
+  /* miejscowości */
+  const towns=[];for(const e of o.elements){if(e.type!=="node"||!e.tags||!e.tags.name)continue;const R=TOWNR[e.tags.place]||500;
+    let b=Infinity,bt=0;for(let i=s.i0;i<=s.i1;i++){const d=hav(P[i].lat,P[i].lon,e.lat,e.lon);if(d<b){b=d;bt=P[i].t;}}
+    if(b<=R)towns.push({n:e.tags.name,t:bt,d:Math.round(b),pl:e.tags.place});}
+  towns.sort((a,b)=>a.t-b.t);const seen=new Set();const T=towns.filter(x=>!seen.has(x.n)&&seen.add(x.n));
+  /* drogi */
+  const W=o.elements.filter(e=>e.type==="way"&&e.geometry&&e.geometry.length>1);
+  const seq=[];for(const i of idx){const p=P[i];const ky=111320,kx=111320*Math.cos(p.lat*D2R);let best=null,bd=31;
+    for(const w of W){const g=w.geometry;for(let k=1;k<g.length;k++){const ax=(g[k-1].lon-p.lon)*kx,ay=(g[k-1].lat-p.lat)*ky,bx=(g[k].lon-p.lon)*kx,by=(g[k].lat-p.lat)*ky;
+      const dx=bx-ax,dy=by-ay,L2=dx*dx+dy*dy;let f=L2?-(ax*dx+ay*dy)/L2:0;f=f<0?0:f>1?1:f;const d=Math.hypot(ax+f*dx,ay+f*dy);if(d<bd){bd=d;best=w;}}}
+    seq.push({t:p.t,l:best?roadLbl(best.tags,foot):null,ref:best&&best.tags.ref?1:0});}
+  /* łączenie kolejnych odcinków tej samej drogi; krótkie wstawki (skrzyżowania) pomijane */
+  let runs=[];for(let k=0;k<seq.length;k++){const x=seq[k];if(x.l==null)continue;const r=runs[runs.length-1];
+    if(r&&r.l===x.l){r.t1=x.t;r.n++;}else runs.push({l:x.l,t0:x.t,t1:x.t,n:1,ref:x.ref});}
+  const minN=foot?2:3;runs=runs.filter(r=>r.n>=minN||runs.length===1);
+  const R2=[];for(const r of runs){const z=R2[R2.length-1];if(z&&z.l===r.l){z.t1=r.t1;z.n+=r.n;}else R2.push(r);}
+  const res={towns:T,roads:R2.map(r=>({l:r.l||"droga bez nazwy",t0:r.t0,t1:r.t1})),v:2};
+  if(IDB){try{await kvSet(key,res);}catch(e){}}return res;}
+async function fillTowns(el,s){el.innerHTML=`przez: <span class="note">ustalanie miejscowości i dróg…</span>`;
+  const r=await routeInfo(s);if(!el.isConnected)return;
+  if(r){el.innerHTML=`<div>przez: ${r.towns.length?r.towns.map(o=>`<b>${esc(o.n)}</b> ${fmtT(o.t)}`).join(" → "):`<span class="note">bez przejazdu przez miejscowości</span>`}</div>`+
+      (r.roads.length?`<div>drogi: ${r.roads.map(o=>`<b>${esc(o.l)}</b> ${fmtT(o.t0)}`).join(" → ")}</div>`:"");return;}
+  /* zapasowo: Nominatim co ok. 1 km */
+  const P=curA.P;const pts=[];let acc=0,step=Math.max(1000,(s.d||0)/80);
   pts.push(s.i0);for(let i=s.i0+1;i<=s.i1;i++){acc+=hav(P[i-1].lat,P[i-1].lon,P[i].lat,P[i].lon);if(acc>=step){pts.push(i);acc=0;}}if(pts[pts.length-1]!==s.i1)pts.push(s.i1);
   const cand=new Map();
   const closest=r=>{let b=Infinity,bt=null;for(let i=s.i0;i<=s.i1;i++){const d=hav(P[i].lat,P[i].lon,r.lat,r.lon);if(d<b){b=d;bt=P[i].t;}}return{d:b,t:bt};};
@@ -541,10 +580,11 @@ async function fillTowns(el,s){const P=curA.P;const pts=[];let acc=0,step=Math.m
   for(const i of pts){const r=await townAt(P[i].lat,P[i].lon);if(!el.isConnected)return;
     if(r&&r.town&&isFinite(r.lat)){const key=r.town+"|"+r.lat.toFixed(4);if(!cand.has(key)){
       const inside=r.osm==="relation"&&(r.type==="town"||r.type==="city");const c=inside?{d:0,t:P[i].t}:closest(r);
-      cand.set(key,{n:r.town,t:c.t,ok:townOk(r,c.d)});}
-      else if(r.osm==="relation"){const c=cand.get(key);if(P[i].t<c.t&&c.ok&&(r.type==="town"||r.type==="city"))c.t=P[i].t;}}
+      cand.set(key,{n:r.town,t:c.t,ok:townOk(r,c.d)});}}
     draw(false);}
   draw(true);}
+/* kolejka zapytań o trasy: po jednym naraz, żeby nie obciążać serwera map */
+let rtQ=Promise.resolve();const fillTownsQ=(el,s)=>{rtQ=rtQ.then(()=>el.isConnected?fillTowns(el,s):null).catch(()=>{});};
 function fillAddr(el,la,lo,prefix){
   const pl=placeAt(la,lo);
   const set=r=>{const base=addrTxt(r);const dist=r&&r.no?` · ${nf0.format(r.dist)} m od budynku`:"";
@@ -702,7 +742,7 @@ function buildTimeline(d){
         <div class="de">${span} · położenie ±${nf0.format(s.spread||0)} m${s.acc!=null?" · GPS "+nf0.format(s.acc)+" m":""}${s.hr?" · tętno śr. "+nf0.format(s.hr):""}</div>`;}
     else if(s.gap){body=`<div class="ti">Brak danych · ${fmtDur(dur)}</div><div class="de">${fmtTs(s.t0)} – ${fmtTs(s.t1)} · przemieszczenie w linii prostej ${fmtKm(s.d)}</div>`;}
     else{const avg=dur>0?s.d/dur*3.6:null;const e=s.ev||{brake:0,accel:0,corner:0};
-      body=`<div class="ti">${CLS[s.c].n} · ${fmtKm(s.d)} · ${durTxt}</div><div class="ad" data-a></div><div class="ad" data-b>${open?"do: — (jeszcze w trasie lub brak nowszych danych)":""}</div>${(s.d||0)>=500?'<div class="ad" data-tw></div>':""}
+      body=`<div class="ti">${CLS[s.c].n} · ${fmtKm(s.d)} · ${durTxt}</div><div class="ad" data-a></div><div class="ad" data-b>${open?"do: — (jeszcze w trasie lub brak nowszych danych)":""}</div>${(s.d||0)>=300?'<div class="ad" data-tw></div>':""}
         <div class="de">${span} · śr. ${fmtV(avg)} · maks. ${fmtV(s.max)}${s.hr?" · tętno śr. "+nf0.format(s.hr)+", maks. "+nf0.format(s.hrMax):""}${s.hiT>0?" · > "+S.high+" km/h: "+fmtKm(s.hiD):""}</div>`+
         (s.c==="drive"?`<div class="ev"><span class="dot" style="background:${EVC.brake}"></span>${e.brake} <span class="dot" style="background:${EVC.accel}"></span>${e.accel} <span class="dot" style="background:${EVC.corner}"></span>${e.corner} · ocena ${s.score!=null?s.score+"/100":"— (brak prędkości z odbiornika)"}</div>`:"");}
     const sc=(curA.calls||[]).map((c,i)=>({c,i})).filter(o=>o.c.t>=s.t0&&o.c.t<=s.t1);
@@ -715,7 +755,7 @@ function buildTimeline(d){
     UL.appendChild(li);
     if(s.c==="stay")fillAddr(li.querySelector("[data-a]"),s.lat,s.lon);
     else if(!s.gap){fillAddr(li.querySelector("[data-a]"),s.lat,s.lon,"z: ");if(!open)fillAddr(li.querySelector("[data-b]"),s.lat2,s.lon2,"do: ");}
-    const tw=li.querySelector("[data-tw]");if(tw)fillTowns(tw,s);
+    const tw=li.querySelector("[data-tw]");if(tw)fillTownsQ(tw,s);
     li.querySelectorAll("[data-ci]").forEach(x=>x.onclick=ev=>{ev.stopPropagation();const m=CALLM[+x.dataset.ci];if(m&&MAP){MAP.setView(m.getLatLng(),17);m.openPopup();document.getElementById("map").scrollIntoView({block:"nearest",behavior:"smooth"});}});
     const eb=li.querySelector("[data-ed]");if(eb)eb.onclick=()=>editSeg(d,s);
     const pb=li.querySelector("[data-pl]");if(pb)pb.onclick=()=>namePlace(s);
