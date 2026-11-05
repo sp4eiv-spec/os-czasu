@@ -75,6 +75,7 @@ svg{display:block;width:100%;height:auto}
 .cd.today{outline:2px solid var(--acc)}
 .cn{font-weight:600}.ck{font-variant-numeric:tabular-nums;color:var(--mut);font-size:11px}
 .cb{display:flex;height:4px;border-radius:2px;overflow:hidden;margin-top:3px}
+.pill{display:inline-block;color:#fff;font-size:11px;font-weight:700;letter-spacing:.03em;padding:1px 7px;border-radius:9px;vertical-align:1px}
 .call.sm{display:inline-block;width:18px;height:18px;font-size:10px;line-height:15px;vertical-align:middle;border-width:1px}.cl1{cursor:pointer;white-space:nowrap;margin-right:8px}
 .call{width:24px;height:24px;border-radius:50%;border:2px solid #000;color:#fff;font-size:13px;line-height:20px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.5)}
 </style>
@@ -553,9 +554,23 @@ function photonCell(la,lo){const k="PH"+la.toFixed(2)+","+lo.toFixed(2);
       const r=(o.features||[]).filter(f=>f.properties&&f.properties.name).map(f=>({n:f.properties.name,ty:f.properties.osm_value,lat:f.geometry.coordinates[1],lon:f.geometry.coordinates[0]}));
       GEO.set(k,r);if(IDB)try{await kvSet(k,r,"geo");}catch(e){}return r;}catch(e){return null;}};
   const p=phChain.then(run);phChain=p.catch(()=>{});return p;}
+/* najbliższy budynek z numerem w promieniu 200 m (Photon) – dla postojów przy drodze */
+function nearHouse(la,lo){const k="NH"+gkey(la,lo);
+  const run=async()=>{if(GEO.has(k))return GEO.get(k);if(IDB){try{const c=await kvGet(k,"geo");if(c!==undefined&&c!==null){GEO.set(k,c);return c;}}catch(e){}}
+    const w=700-(Date.now()-phLast);if(w>0)await sleep(w);phLast=Date.now();
+    try{const x=await fetch(`https://photon.komoot.io/reverse?lat=${la}&lon=${lo}&limit=10&radius=0.2&lang=default`,{signal:AbortSignal.timeout(15000)});if(!x.ok)return null;const o=await x.json();
+      let best=null;for(const f of o.features||[]){const p=f.properties||{};if(!p.housenumber)continue;const d=hav(la,lo,f.geometry.coordinates[1],f.geometry.coordinates[0]);
+        if(!best||d<best.d)best={txt:(p.street||p.locality||p.district||p.city||p.name||"")+" "+p.housenumber+(p.street&&p.city?", "+p.city:""),d};}
+      const r=best||false;GEO.set(k,r);if(IDB)try{await kvSet(k,r,"geo");}catch(e){}return r;}catch(e){return null;}};
+  const p=phChain.then(run);phChain=p.catch(()=>{});return p;}
 const PLR={isolated_dwelling:250,hamlet:450,neighbourhood:500,quarter:700,suburb:800,village:700,town:1500,city:3000};
 async function fillTowns(el,s){const P=curA.P;const key="rt4-"+s.t0+"-"+s.t1+"-"+s.c;const foot=s.c==="walk"||s.c==="run";
-  const draw=(T,Rd,done)=>{el.innerHTML=`<div>przez: ${T.length?T.map(o=>`<b>${esc(o.n)}</b> ${fmtT(o.t)}`).join(" → "):(done?`<span class="note">bez przejazdu przez miejscowości</span>`:"")}</div>`+
+  /* zatrzymania (prędkość < 3 km/h przez co najmniej 30 s) w trakcie odcinka */
+  const H=[];{let a=null;for(let i=s.i0;i<=s.i1;i++){const p=P[i];if(p.v<3){if(a==null)a=i;}else{if(a!=null&&P[i-1].t-P[a].t>=30000)H.push({t:P[a].t,t1:P[i-1].t});a=null;}}
+    if(a!=null&&P[s.i1].t-P[a].t>=30000&&a>s.i0)H.push({t:P[a].t,t1:P[s.i1].t});}
+  const pill=(c,txt)=>`<span class="pill" style="background:${ccol(c)}">${txt}</span>`;
+  const draw=(T,Rd,done)=>{const items=T.map(o=>({t:o.t,h:`<b>${esc(o.n)}</b> ${fmtT(o.t)}`})).concat(H.map(h=>({t:h.t,h:`${pill("stay","postój")} ${fmtT(h.t)}–${fmtT(h.t1)} (${fmtDur((h.t1-h.t)/1000)})`}))).sort((a,b)=>a.t-b.t);
+    el.innerHTML=`<div>przez: ${items.length?items.map(o=>o.h).join(" → "):(done?`<span class="note">bez przejazdu przez miejscowości</span>`:"")}</div>`+
     (Rd.length?`<div>${foot?"ulice/drogi":"drogi"}: ${Rd.map(o=>`<b>${esc(o.l)}</b> ${fmtT(o.t0)}`).join(" → ")}</div>`:"")+(done?"":`<span class="note">ustalanie miejscowości i dróg…</span>`);};
   if(IDB){try{const c=await kvGet(key);if(c){draw(c.towns,c.roads,true);return;}}catch(e){}}
   draw([],[],false);
@@ -598,7 +613,7 @@ function fillAddr(el,la,lo,prefix){
   const set=r=>{const base=addrTxt(r);const dist=r&&r.no?` · ${nf0.format(r.dist)} m od budynku`:"";
     el.innerHTML=(prefix||"")+(pl?`<b>${esc(pl.p.name)}</b> · `:"")+esc(base)+`<span class="note">${dist}</span>`;};
   el.innerHTML=(prefix||"")+(pl?`<b>${esc(pl.p.name)}</b> · `:"")+`<span class="note">szukanie adresu…</span>`;
-  geocode(la,lo).then(set);
+  geocode(la,lo).then(r=>{set(r);if(r&&!r.no)nearHouse(la,lo).then(h=>{if(h&&el.isConnected)el.innerHTML+=`<br><span>na wysokości: <b>${esc(h.txt)}</b></span><span class="note"> · ${nf0.format(h.d)} m</span>`;});});
 }
 
 /* ================= dni ================= */
@@ -746,11 +761,11 @@ function buildTimeline(d){
     const col=s.c==="stay"?ccol("stay"):s.gap?ccol("gap"):ccol(s.c);
     let body="";
     if(s.c==="stay"){nr++;
-      body=`<div class="ti">Pobyt ${nr} · ${durTxt}</div><div class="ad" data-a></div>
+      body=`<div class="ti"><span class="pill" style="background:${ccol("stay")}">POSTÓJ</span> Pobyt ${nr} · ${durTxt}</div><div class="ad" data-a></div>
         <div class="de">${span} · położenie ±${nf0.format(s.spread||0)} m${s.acc!=null?" · GPS "+nf0.format(s.acc)+" m":""}${s.hr?" · tętno śr. "+nf0.format(s.hr):""}</div>`;}
-    else if(s.gap){body=`<div class="ti">Brak danych · ${fmtDur(dur)}</div><div class="de">${fmtTs(s.t0)} – ${fmtTs(s.t1)} · przemieszczenie w linii prostej ${fmtKm(s.d)}</div>`;}
+    else if(s.gap){body=`<div class="ti"><span class="pill" style="background:${ccol("gap")};color:#222">BRAK DANYCH</span> ${fmtDur(dur)}</div><div class="de">${fmtTs(s.t0)} – ${fmtTs(s.t1)} · przemieszczenie w linii prostej ${fmtKm(s.d)}</div>`;}
     else{const avg=dur>0?s.d/dur*3.6:null;const e=s.ev||{brake:0,accel:0,corner:0};
-      body=`<div class="ti">${CLS[s.c].n} · ${fmtKm(s.d)} · ${durTxt}</div><div class="ad" data-a></div><div class="ad" data-b>${open?"do: — (jeszcze w trasie lub brak nowszych danych)":""}</div>${(s.d||0)>=300?'<div class="ad" data-tw></div>':""}
+      body=`<div class="ti"><span class="pill" style="background:${ccol(s.c)}">${CLS[s.c].n.toUpperCase()}</span> ${fmtKm(s.d)} · ${durTxt}</div><div class="ad" data-a></div><div class="ad" data-b>${open?"do: — (jeszcze w trasie lub brak nowszych danych)":""}</div>${(s.d||0)>=300?'<div class="ad" data-tw></div>':""}
         <div class="de">${span} · śr. ${fmtV(avg)} · maks. ${fmtV(s.max)}${s.hr?" · tętno śr. "+nf0.format(s.hr)+", maks. "+nf0.format(s.hrMax):""}${s.hiT>0?" · > "+S.high+" km/h: "+fmtKm(s.hiD):""}</div>`+
         (s.c==="drive"?`<div class="ev"><span class="dot" style="background:${EVC.brake}"></span>${e.brake} <span class="dot" style="background:${EVC.accel}"></span>${e.accel} <span class="dot" style="background:${EVC.corner}"></span>${e.corner} · ocena ${s.score!=null?s.score+"/100":"— (brak prędkości z odbiornika)"}</div>`:"");}
     const sc=(curA.calls||[]).map((c,i)=>({c,i})).filter(o=>o.c.t>=s.t0&&o.c.t<=s.t1);
