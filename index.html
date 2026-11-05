@@ -303,7 +303,7 @@ function fromCols(c,src){const n=c?c.t.length:0,o=new Array(n);const nn=x=>isNaN
   for(let i=0;i<n;i++)o[i]={t:c.t[i],lat:c.lat[i],lon:c.lon[i],sp:nn(c.sp[i]),acc:nn(c.acc[i]),hr:nn(c.hr[i]),ele:nn(c.ele[i]),src};return o;}
 function mergePts(a,b){const all=a.concat(b).filter(p=>isFinite(p.t)&&isFinite(p.lat)&&isFinite(p.lon)&&Math.abs(p.lat)<=90&&Math.abs(p.lon)<=180).sort((x,y)=>x.t-y.t);
   const u=[];for(const p of all){const L=u[u.length-1];if(L&&p.t-L.t<300){if(p.acc!=null&&(L.acc==null||p.acc<L.acc))u[u.length-1]=p;continue;}u.push(p);}return u;}
-const APPVER="5.11.2026 22:15";
+const APPVER="5.11.2026 23:20";
 let CALLS=[];
 async function initStore(){
   const st=$("store");
@@ -1096,7 +1096,17 @@ function getToken(interactive){
     tc.requestAccessToken({prompt:""});
   });
 }
+/* odczyt Dysku przez własny program Google Apps Script – bez logowania i bez wygasania po godzinie */
+const proxyOk=()=>!!(D.proxy&&D.pkey);
+async function gproxy(url){const rel=url.startsWith("https://www.googleapis.com/drive/v3/")?url.slice(36):url;if(rel.startsWith("http"))return null;
+  const x=await fetch(D.proxy+"?k="+encodeURIComponent(D.pkey)+"&p="+encodeURIComponent(rel),{signal:AbortSignal.timeout(60000)});
+  if(!x.ok)throw new Error("program Dysku: "+x.status);const o=await x.json();
+  const bin=atob(o.b64||"");const u8=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u8[i]=bin.charCodeAt(i);
+  const r=new Response(u8,{status:o.s||200,headers:{"Content-Type":o.ct||"application/octet-stream"}});
+  if(!r.ok){let t="";try{t=(await r.clone().json()).error.message;}catch(e){}throw new Error("Dysk: "+r.status+(t?" – "+t:""));}
+  return r;}
 async function gapi(url,opt={},interactive){
+  if(proxyOk()&&(!opt.method||opt.method==="GET")){const r=await gproxy(url);if(r)return r;}
   const tok=await getToken(interactive);
   const r=await fetch(url.startsWith("http")?url:"https://www.googleapis.com/drive/v3/"+url,Object.assign({},opt,{headers:Object.assign({Authorization:"Bearer "+tok},opt.headers||{})}));
   if(r.status===401){TOK=null;try{localStorage.removeItem("osczasu-tok");}catch(e){}driveUI();throw new Error("sesja Google wygasła – zaloguj ponownie");}
@@ -1194,9 +1204,9 @@ async function out(name,data,type,toDrive){
   await uploadFile(name,data,type,ex,true);msg("Zapisano na Dysku: Oś czasu/Eksport/"+name);
 }
 function driveUI(){const b=$("bDrv");if(!b)return;
-  b.textContent=syncing?"Dysk ⟳…":(driveReady()?(tokOk()?"Synchronizuj":"Dysk: zaloguj"):"Dysk Google");
-  const i=$("drvInfo");if(i)i.textContent=driveReady()?((D.lastSync?"Ostatnia synchronizacja: "+new Date(D.lastSync).toLocaleString("pl-PL"):"Jeszcze nie synchronizowano")+(D.lastBak?" · kopia: "+new Date(D.lastBak).toLocaleString("pl-PL"):"")):"";}
-$("bDrv").onclick=()=>{if(!driveReady()){driveDlg();return;}driveSync(true);};
+  b.textContent=syncing?"Dysk ⟳…":(proxyOk()||tokOk()?"Synchronizuj":(driveReady()?"Dysk: zaloguj":"Dysk Google"));
+  const i=$("drvInfo");if(i)i.textContent=(driveReady()||proxyOk())?(proxyOk()?"Automatycznie, bez logowania · ":"")+((D.lastSync?"Ostatnia synchronizacja: "+new Date(D.lastSync).toLocaleString("pl-PL"):"Jeszcze nie synchronizowano")+(D.lastBak?" · kopia: "+new Date(D.lastBak).toLocaleString("pl-PL"):"")):"";}
+$("bDrv").onclick=()=>{if(!driveReady()&&!proxyOk()){driveDlg();return;}driveSync(true);};
 $("bDrvSet").onclick=()=>driveDlg();
 function driveDlg(){
   dlg(`<h2>Dysk Google</h2>
@@ -1229,12 +1239,19 @@ function calendarHTML(m){
 /* ================= aplikacja (PWA) ================= */
 if("serviceWorker" in navigator&&location.protocol==="https:"){navigator.serviceWorker.register("sw.js").catch(()=>{});}
 (async()=>{await initStore();driveUI();
-  if(driveReady()&&D.syncAuto&&tokOk())driveSync(false);})();
+  if(proxyFromHash())return;
+  if((driveReady()||proxyOk())&&D.syncAuto&&(tokOk()||proxyOk()))driveSync(false);})();
 setInterval(driveUI,60000);
 /* samoczynne odświeżanie: co 5 minut i po powrocie do aplikacji (tylko gdy logowanie Google jest ważne) */
-function autoSync(){if(document.visibilityState==="visible"&&driveReady()&&D.syncAuto&&tokOk()&&!syncing)driveSync(false);}
+function autoSync(){if(document.visibilityState==="visible"&&(driveReady()||proxyOk())&&D.syncAuto&&(tokOk()||proxyOk())&&!syncing)driveSync(false);}
 setInterval(autoSync,300000);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&Date.now()-(D.lastSync||0)>120000)autoSync();});
+
+/* jednorazowe ustawienie programu Dysku z linku: …/os-czasu/#proxy=<adres>&k=<klucz> (część po # nie trafia do żadnego serwera) */
+function proxyFromHash(){const h=location.hash.slice(1);if(!h.includes("proxy="))return false;const p=new URLSearchParams(h);
+  const u=p.get("proxy"),k=p.get("k");history.replaceState(null,"",location.pathname+location.search);
+  if(!u||!k||!/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(u)){msg("Nieprawidłowy link ustawień programu Dysku.",true);return false;}
+  D.proxy=u;D.pkey=k;D.syncAuto=true;saveD();driveUI();msg("Ustawiono samoczynne pobieranie z Dysku (bez logowania).");driveSync(false);return true;}
 /* ================= 1. wyszukiwanie po miejscu ================= */
 const SRCHR={house:60,building:60,street:120,road:120,isolated_dwelling:250,farm:250,hamlet:450,neighbourhood:500,quarter:700,suburb:900,village:700,town:1500,city:3000,locality:400};
 $("bFind").onclick=()=>{
