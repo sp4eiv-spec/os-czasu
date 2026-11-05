@@ -529,7 +529,7 @@ async function townAt(la,lo){const k="U"+la.toFixed(3)+","+lo.toFixed(3);if(GEO.
   if(IDB){try{const c=await kvGet(k,"geo");if(c){GEO.set(k,c);return c;}}catch(e){}}
   return new Promise(res=>{geoQ.push({la,lo,k,res,town:true});pumpGeo();});}
 /* ================= trasa: miejscowości i drogi (OpenStreetMap Nominatim) =================
-   Punkty śladu co ok. 700 m (spacer 150 m). Dla każdego: miejscowość z mapy i droga, po której jedziesz.
+   Miejscowości: wszystkie z okolicy trasy (Photon), drogi: punkt śladu co ok. 700 m (Nominatim).
    Miejscowość jest wpisywana tylko wtedy, gdy ślad przechodzi przez nią naprawdę: najbliższy punkt śladu jest
    w zasięgu punktu miejscowości (osada 250 m, przysiółek 500 m, wieś 900 m, miasto 2 km lub wewnątrz granicy miasta).
    Godzina miejscowości = chwila największego zbliżenia; godzina drogi = wjazd na nią. */
@@ -542,32 +542,57 @@ function roadLbl(r){const ref=(r.ref||"").split(";")[0].trim().replace(/\s+/g,""
 async function roadAt(la,lo){const k="R"+la.toFixed(4)+","+lo.toFixed(4);if(GEO.has(k))return GEO.get(k);
   if(IDB){try{const c=await kvGet(k,"geo");if(c){GEO.set(k,c);return c;}}catch(e){}}
   return new Promise(res=>{geoQ.push({la,lo,k,res,road:true});pumpGeo();});}
-async function fillTowns(el,s){const P=curA.P;const key="rt3-"+s.t0+"-"+s.t1+"-"+s.c;const foot=s.c==="walk"||s.c==="run";
+/* wszystkie miejscowości w promieniu 3 km od środka kratki 0,02° (Photon, OpenStreetMap); wynik zapamiętywany na stałe */
+let phLast=0,phChain=Promise.resolve();
+const PHT=["village","hamlet","town","city","isolated_dwelling","suburb","quarter","neighbourhood"].map(t=>"&osm_tag=place:"+t).join("");
+function photonCell(la,lo){const k="PH"+la.toFixed(2)+","+lo.toFixed(2);
+  const run=async()=>{if(GEO.has(k))return GEO.get(k);if(IDB){try{const c=await kvGet(k,"geo");if(c){GEO.set(k,c);return c;}}catch(e){}}
+    const w=700-(Date.now()-phLast);if(w>0)await sleep(w);phLast=Date.now();
+    try{const x=await fetch(`https://photon.komoot.io/reverse?lat=${la.toFixed(2)}&lon=${lo.toFixed(2)}&limit=60&radius=3${PHT}`,{signal:AbortSignal.timeout(15000)});
+      if(!x.ok)return null;const o=await x.json();
+      const r=(o.features||[]).filter(f=>f.properties&&f.properties.name).map(f=>({n:f.properties.name,ty:f.properties.osm_value,lat:f.geometry.coordinates[1],lon:f.geometry.coordinates[0]}));
+      GEO.set(k,r);if(IDB)try{await kvSet(k,r,"geo");}catch(e){}return r;}catch(e){return null;}};
+  const p=phChain.then(run);phChain=p.catch(()=>{});return p;}
+const PLR={isolated_dwelling:250,hamlet:450,neighbourhood:500,quarter:700,suburb:800,village:700,town:1500,city:3000};
+async function fillTowns(el,s){const P=curA.P;const key="rt4-"+s.t0+"-"+s.t1+"-"+s.c;const foot=s.c==="walk"||s.c==="run";
   const draw=(T,Rd,done)=>{el.innerHTML=`<div>przez: ${T.length?T.map(o=>`<b>${esc(o.n)}</b> ${fmtT(o.t)}`).join(" → "):(done?`<span class="note">bez przejazdu przez miejscowości</span>`:"")}</div>`+
     (Rd.length?`<div>${foot?"ulice/drogi":"drogi"}: ${Rd.map(o=>`<b>${esc(o.l)}</b> ${fmtT(o.t0)}`).join(" → ")}</div>`:"")+(done?"":`<span class="note">ustalanie miejscowości i dróg…</span>`);};
   if(IDB){try{const c=await kvGet(key);if(c){draw(c.towns,c.roads,true);return;}}catch(e){}}
+  draw([],[],false);
+  /* 1. miejscowości: wszystkie z okolicy trasy, potem sprawdzenie, czy ślad przez nie przechodzi */
+  const cells=[];const seenC=new Set();for(let i=s.i0;i<=s.i1;i++){const la=Math.round(P[i].lat/0.02)*0.02,lo=Math.round(P[i].lon/0.02)*0.02;const ck=la.toFixed(2)+","+lo.toFixed(2);if(!seenC.has(ck)){seenC.add(ck);cells.push([la,lo]);}}
+  const places=new Map();let fail=0;let T=[];
+  const evalTowns=()=>{const out=[];for(const pl of places.values()){
+      if(pl._d==null){const R=PLR[pl.ty]||500;let b=Infinity,bt=0;for(let i=s.i0;i<=s.i1;i++){const d=hav(P[i].lat,P[i].lon,pl.lat,pl.lon);if(d<b){b=d;bt=P[i].t;}}pl._d=b;pl._t=bt;pl._ok=b<=R;}
+      if(pl._ok)out.push({n:pl.n,t:pl._t});}
+    out.sort((a,b)=>a.t-b.t);const sn=new Set();return out.filter(x=>!sn.has(x.n)&&sn.add(x.n));};
+  for(const [la,lo] of cells){const r=await photonCell(la,lo);if(!el.isConnected)return;if(!r){fail++;continue;}
+    for(const pl of r){const k3=pl.n+"|"+pl.lat.toFixed(4);if(!places.has(k3))places.set(k3,Object.assign({},pl));}T=evalTowns();draw(T,[],false);}
+  /* zapasowo, gdy Photon nie odpowiada: Nominatim (jedna miejscowość na punkt) */
   const pts=[s.i0];let acc=0,step=Math.max(foot?150:700,(s.d||0)/120);
   for(let i=s.i0+1;i<=s.i1;i++){acc+=hav(P[i-1].lat,P[i-1].lon,P[i].lat,P[i].lon);if(acc>=step){pts.push(i);acc=0;}}if(pts[pts.length-1]!==s.i1)pts.push(s.i1);
+  const useNom=fail>cells.length/2;let rfail=0;
   const cand=new Map(),seq=[];
   const closest=r=>{let b=Infinity,bt=null;for(let i=s.i0;i<=s.i1;i++){const d=hav(P[i].lat,P[i].lon,r.lat,r.lon);if(d<b){b=d;bt=P[i].t;}}return{d:b,t:bt};};
-  const towns=()=>{const seen=new Set();return[...cand.values()].filter(c=>c.ok).sort((a,b)=>a.t-b.t).filter(c=>!seen.has(c.n)&&seen.add(c.n)).map(c=>({n:c.n,t:c.t}));};
+  const nomTowns=()=>{const seen=new Set();return[...cand.values()].filter(c=>c.ok).sort((a,b)=>a.t-b.t).filter(c=>!seen.has(c.n)&&seen.add(c.n)).map(c=>({n:c.n,t:c.t}));};
   const roads=()=>{let runs=[];for(const x of seq){if(!x.l)continue;const r=runs[runs.length-1];if(r&&r.l===x.l){r.t1=x.t;r.n++;}else runs.push({l:x.l,t0:x.t,t1:x.t,n:1});}
     /* pojedyncza próbka innej drogi między dwiema próbkami tej samej (skrzyżowanie) – pomijana */
     for(let k=1;k<runs.length-1;k++)if(runs[k].n===1&&runs[k-1].l===runs[k+1].l){runs[k-1].t1=runs[k+1].t1;runs[k-1].n+=runs[k+1].n;runs.splice(k,2);k--;}
     return runs.map(r=>({l:r.l,t0:r.t0,t1:r.t1}));};
-  draw([],[],false);
+  /* 2. drogi (Nominatim, punkt co ok. 700 m) */
   for(const i of pts){const p=P[i];
-    const rd=await roadAt(p.lat,p.lon);if(!el.isConnected)return;
+    const rd=await roadAt(p.lat,p.lon);if(!el.isConnected)return;if(!rd)rfail++;
     seq.push({t:p.t,l:rd&&rd.hw&&rd.d<=40?roadLbl(rd):""});
-    const r=await townAt(p.lat,p.lon);if(!el.isConnected)return;
-    if(r&&r.town&&isFinite(r.lat)){const k2=r.town+"|"+r.lat.toFixed(4);if(!cand.has(k2)){
-      const inside=r.osm==="relation"&&(r.type==="town"||r.type==="city");const c=inside?{d:0,t:p.t}:closest(r);
-      cand.set(k2,{n:r.town,t:c.t,ok:townOk(r,c.d)});}}
-    draw(towns(),roads(),false);}
-  const res={towns:towns(),roads:roads()};draw(res.towns,res.roads,true);
-  if(IDB){try{await kvSet(key,res);}catch(e){}}}
+    if(useNom){const r=await townAt(p.lat,p.lon);if(!el.isConnected)return;
+      if(r&&r.town&&isFinite(r.lat)){const k2=r.town+"|"+r.lat.toFixed(4);if(!cand.has(k2)){
+        const inside=r.osm==="relation"&&(r.type==="town"||r.type==="city");const c=inside?{d:0,t:p.t}:closest(r);
+        cand.set(k2,{n:r.town,t:c.t,ok:townOk(r,c.d)});}}T=nomTowns();}
+    draw(T,roads(),false);}
+  const res={towns:T,roads:roads()};draw(res.towns,res.roads,true);
+  if(IDB&&!fail&&rfail<=pts.length*0.2){try{await kvSet(key,res);}catch(e){}}}
 /* kolejka: trasy opisywane po kolei, żeby nie obciążać serwera map (limit 1 zapytanie na sekundę) */
-let rtQ=Promise.resolve();const fillTownsQ=(el,s)=>{rtQ=rtQ.then(()=>el.isConnected?fillTowns(el,s):null).catch(()=>{});};
+/* zapytania są i tak kolejkowane osobno: Photon co 0,7 s, Nominatim co 1,1 s – odcinki opisywane równolegle */
+const fillTownsQ=(el,s)=>{fillTowns(el,s).catch(()=>{});};
 function fillAddr(el,la,lo,prefix){
   const pl=placeAt(la,lo);
   const set=r=>{const base=addrTxt(r);const dist=r&&r.no?` · ${nf0.format(r.dist)} m od budynku`:"";
