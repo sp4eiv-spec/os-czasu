@@ -505,7 +505,7 @@ async function pumpGeo(){
     const w=1100-(Date.now()-geoLast);if(w>0)await sleep(w);geoLast=Date.now();
     let r=null;
     if(j.town){try{const x=await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${j.la}&lon=${j.lo}&zoom=14&addressdetails=1&accept-language=pl`,{signal:AbortSignal.timeout(8000)});
-        if(x.ok){const o=await x.json();const a=o&&o.address;if(a)r={town:a.city||a.town||a.village||a.hamlet||a.isolated_dwelling||a.suburb||""};}}catch(e){}
+        if(x.ok){const o=await x.json();const a=o&&o.address;if(a)r={town:a.city||a.town||a.village||a.hamlet||a.isolated_dwelling||a.suburb||"",type:o.addresstype||"",osm:o.osm_type||"",lat:+o.lat,lon:+o.lon};}}catch(e){}
       if(r){GEO.set(j.k,r);if(IDB)try{await kvSet(j.k,r,"geo");}catch(e){}}j.res(r);continue;}
     try{const u=`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${j.la}&lon=${j.lo}&zoom=18&addressdetails=1&accept-language=pl`;
       const x=await fetch(u,{signal:AbortSignal.timeout(8000)});if(x.ok){const o=await x.json();if(o&&o.address){const a=o.address;
@@ -522,17 +522,29 @@ function addrTxt(r){if(!r)return "adres niedostępny";
   const line=(r.street?r.street+(r.no?" "+r.no:""):(r.name||"brak nazwy ulicy"))+(r.town?", "+r.town:"");
   return line+(r.no?"":" (bez numeru)");}
 /* miejscowość (poziom wsi/miasta) – klucz z dokładnością ok. 100 m */
-async function townAt(la,lo){const k="T"+la.toFixed(3)+","+lo.toFixed(3);if(GEO.has(k))return GEO.get(k);
+async function townAt(la,lo){const k="U"+la.toFixed(3)+","+lo.toFixed(3);if(GEO.has(k))return GEO.get(k);
   if(IDB){try{const c=await kvGet(k,"geo");if(c){GEO.set(k,c);return c;}}catch(e){}}
   return new Promise(res=>{geoQ.push({la,lo,k,res,town:true});pumpGeo();});}
-/* miejscowości na trasie: próbki co ok. 1 km (najwyżej 80 na odcinek), kolejne powtórzenia łączone */
+/* miejscowości na trasie. Kandydaci: zapytania co ok. 1 km. Miejscowość jest wpisywana tylko wtedy, gdy ślad przechodzi
+   przez nią naprawdę: najbliższy punkt śladu jest w zasięgu jej środka (przysiółek 350 m, wieś 600 m, wieś z granicą 800 m,
+   miasto 1,5–3 km lub wewnątrz granicy miasta). Godzina = chwila największego zbliżenia do środka miejscowości. */
+const TOWNR={isolated_dwelling:150,farm:150,hamlet:350,neighbourhood:500,quarter:700,suburb:800,village:600,town:1500,city:3000};
+function townOk(r,dmin){if(!r||!r.town)return false;if(r.osm==="relation"&&(r.type==="town"||r.type==="city"))return true;
+  const R=r.osm==="relation"&&r.type==="village"?800:(TOWNR[r.type]||500);return dmin<=R;}
 async function fillTowns(el,s){const P=curA.P;const pts=[];let acc=0,step=Math.max(1000,(s.d||0)/80);
   pts.push(s.i0);for(let i=s.i0+1;i<=s.i1;i++){acc+=hav(P[i-1].lat,P[i-1].lon,P[i].lat,P[i].lon);if(acc>=step){pts.push(i);acc=0;}}if(pts[pts.length-1]!==s.i1)pts.push(s.i1);
-  const out=[];const draw=done=>{el.innerHTML="przez: "+out.map(o=>`<b>${esc(o.n)}</b> ${fmtT(o.t)}`).join(" → ")+(done?"":` <span class="note">ustalanie miejscowości…</span>`);};
-  el.innerHTML=`przez: <span class="note">ustalanie miejscowości…</span>`;
-  for(const i of pts){const r=await townAt(P[i].lat,P[i].lon);if(!el.isConnected)return;const n=r&&r.town;
-    if(n&&(!out.length||out[out.length-1].n!==n))out.push({n,t:P[i].t});draw(false);}
-  draw(true);if(!out.length)el.innerHTML=`przez: <span class="note">brak nazw miejscowości</span>`;}
+  const cand=new Map();
+  const closest=r=>{let b=Infinity,bt=null;for(let i=s.i0;i<=s.i1;i++){const d=hav(P[i].lat,P[i].lon,r.lat,r.lon);if(d<b){b=d;bt=P[i].t;}}return{d:b,t:bt};};
+  const draw=done=>{const seen=new Set();const L=[...cand.values()].filter(c=>c.ok).sort((a,b)=>a.t-b.t).filter(c=>!seen.has(c.n)&&seen.add(c.n));
+    el.innerHTML="przez: "+(L.length?L.map(o=>`<b>${esc(o.n)}</b> ${fmtT(o.t)}`).join(" → "):(done?`<span class="note">bez przejazdu przez miejscowości</span>`:""))+(done?"":` <span class="note">ustalanie miejscowości…</span>`);};
+  draw(false);
+  for(const i of pts){const r=await townAt(P[i].lat,P[i].lon);if(!el.isConnected)return;
+    if(r&&r.town&&isFinite(r.lat)){const key=r.town+"|"+r.lat.toFixed(4);if(!cand.has(key)){
+      const inside=r.osm==="relation"&&(r.type==="town"||r.type==="city");const c=inside?{d:0,t:P[i].t}:closest(r);
+      cand.set(key,{n:r.town,t:c.t,ok:townOk(r,c.d)});}
+      else if(r.osm==="relation"){const c=cand.get(key);if(P[i].t<c.t&&c.ok&&(r.type==="town"||r.type==="city"))c.t=P[i].t;}}
+    draw(false);}
+  draw(true);}
 function fillAddr(el,la,lo,prefix){
   const pl=placeAt(la,lo);
   const set=r=>{const base=addrTxt(r);const dist=r&&r.no?` · ${nf0.format(r.dist)} m od budynku`:"";
