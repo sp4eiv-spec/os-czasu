@@ -691,7 +691,7 @@ async function show(k,keepView){
   if(MAP){MAP.remove();MAP=null;}
   V.innerHTML=h;
   $("cMode").value=colorMode;$("cMode").onchange=e=>{colorMode=e.target.value;drawTrack();};
-  initMap();if(mv&&MAP){MAP.setView(mv.c,mv.z);_kb=true;}drawTrack();drawChart();buildTimeline(d);setupPlay();bindCalls();if(mv)window.scrollTo(0,sy);
+  initMap();if(mv&&MAP){MAP.setView(mv.c,mv.z);_kb=true;}drawTrack();drawChart(!!mv);buildTimeline(d);setupPlay();bindCalls();if(mv)window.scrollTo(0,sy);
   $("eRap").onclick=()=>dayReport(k);$("eCsv").onclick=()=>exportCSV(k,false);$("eGpx").onclick=()=>exportGPX(k,false);if($("eDrv"))$("eDrv").onclick=async()=>{try{await exportCSV(k,true);await exportGPX(k,true);}catch(e){msg("Dysk: "+e.message,true);}};$("eDel").onclick=()=>askDelete(k);
 }
 function initMap(){
@@ -785,30 +785,64 @@ function buildTimeline(d){
     const pb=li.querySelector("[data-pl]");if(pb)pb.onclick=()=>namePlace(s);
   });
 }
-/* wykres prędkości (i tętna) */
-function drawChart(){
-  const {P,segs}=curA;if(P.length<2){$("chart").innerHTML="";return;}
-  const W=1000,H=420,ml=64,mr=60,mt=34,mb=40;const t0=P[0].t,t1=P[P.length-1].t;
-  let vmax=10;for(const p of P)vmax=Math.max(vmax,p.v);const st=[10,20,25,50,100].find(s=>vmax/s<=6)||50;const top=Math.ceil(vmax/st)*st;
+/* wykres prędkości (i tętna): powiększanie (przyciski, dwa palce, kółko myszy), przesuwanie,
+   przeciągnięcie palcem pokazuje godzinę i prędkość oraz przesuwa kropkę na mapie */
+let CHW=null;
+function drawChart(keep){
+  const {P}=curA;const box=$("chart");if(P.length<2){box.innerHTML="";return;}
+  const T0=P[0].t,T1=P[P.length-1].t;if(!keep||!CHW){CHW={t0:T0,t1:T1};chLast=null;}
+  const minSpan=120000;CHW.t1=Math.min(T1,CHW.t1);CHW.t0=Math.max(T0,CHW.t0);if(CHW.t1-CHW.t0<minSpan){const m=(CHW.t0+CHW.t1)/2;CHW.t0=Math.max(T0,m-minSpan/2);CHW.t1=Math.min(T1,CHW.t0+minSpan);}
+  const t0=CHW.t0,t1=CHW.t1;const W=1000,H=420,ml=64,mr=60,mt=34,mb=40;
+  let a=0,b=P.length-1;while(a<b&&P[a+1].t<t0)a++;while(b>a&&P[b-1].t>t1)b--;
+  let vmax=10;for(let i=a;i<=b;i++)vmax=Math.max(vmax,P[i].v);const st=[10,20,25,50,100].find(s=>vmax/s<=6)||50;const top=Math.ceil(vmax/st)*st;
   const X=t=>ml+(t-t0)/(t1-t0||1)*(W-ml-mr),Y=v=>mt+(1-v/top)*(H-mt-mb);
-  let s=`<svg viewBox="0 0 ${W} ${H}">`;
+  let s=`<svg id="chSvg" viewBox="0 0 ${W} ${H}" style="touch-action:none;user-select:none">`;
   for(let v=0;v<=top;v+=st)s+=`<line x1="${ml}" x2="${W-mr}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)"/><text x="${ml-6}" y="${Y(v)+8}" text-anchor="end" class="axis">${v}</text>`;
-  const span=(t1-t0)/3600000,hs=span>12?3:span>6?2:span>2?1:0.5;const d0=new Date(t0);d0.setMinutes(0,0,0);
-  for(let t=d0.getTime();t<=t1;t+=hs*3600000)if(t>=t0)s+=`<text x="${X(t)}" y="${H-8}" text-anchor="middle" class="axis">${fmtT(t)}</text>`;
+  const span=(t1-t0)/3600000;const hs=[12,6,3,2,1,0.5,0.25,1/6,1/12,1/30,1/60].find(h=>span/h<=6&&span/h>=1.5)||1/60;
+  const d0=new Date(t0);d0.setMinutes(0,0,0);for(let t=d0.getTime();t<=t1;t+=hs*3600000)if(t>=t0)s+=`<line x1="${X(t)}" x2="${X(t)}" y1="${mt}" y2="${H-mb}" stroke="var(--line)" stroke-dasharray="2 6"/><text x="${X(t)}" y="${H-8}" text-anchor="middle" class="axis">${fmtT(t)}</text>`;
   s+=`<text x="${ml}" y="24" class="axis">km/h</text>`;
+  const stepI=Math.max(1,Math.floor((b-a)/2500));
   let run=[],key=null;const fl=()=>{if(run.length>1)s+=`<polyline fill="none" stroke="${key}" stroke-width="3" points="${run.join(" ")}"/>`;};
-  for(let i=0;i<P.length;i++){const p=P[i];if(i>0&&p.t-P[i-1].t>60000){fl();run=[];key=null;}
+  for(let i=a;i<=b;i+=stepI){const p=P[i];if(i>a&&p.t-P[Math.max(a,i-stepI)].t>60000*stepI){fl();run=[];key=null;}
     const c=VCOL[vbin(p.v)];if(c!==key){fl();run=run.length?[run[run.length-1]]:[];key=c;}run.push(X(p.t).toFixed(1)+","+Y(p.v).toFixed(1));}
   fl();
-  const hr=P.filter(p=>p.hr!=null);
+  const hr=[];for(let i=a;i<=b;i++)if(P[i].hr!=null)hr.push(P[i]);
   if(hr.length>1){const hmin=Math.floor(Math.min(...hr.map(p=>p.hr))/10)*10,hmax=Math.ceil(Math.max(...hr.map(p=>p.hr))/10)*10||200;
     const YH=h=>mt+(1-(h-hmin)/(hmax-hmin||1))*(H-mt-mb);let pts=[];
     for(let i=0;i<hr.length;i++){if(i>0&&hr[i].t-hr[i-1].t>60000){if(pts.length>1)s+=`<polyline fill="none" stroke="#d6336c" stroke-width="2" stroke-dasharray="6 4" points="${pts.join(" ")}"/>`;pts=[];}pts.push(X(hr[i].t).toFixed(1)+","+YH(hr[i].hr).toFixed(1));}
     if(pts.length>1)s+=`<polyline fill="none" stroke="#d6336c" stroke-width="2" stroke-dasharray="6 4" points="${pts.join(" ")}"/>`;
     s+=`<text x="${W-mr+6}" y="${YH(hmax)+8}" class="axis" fill="#d6336c">${hmax}</text><text x="${W-mr+6}" y="${YH(hmin)}" class="axis">${hmin}</text><text x="${W-mr}" y="24" class="axis" text-anchor="end">tętno</text>`;}
-  for(const e of curA.events){const p=P.find(q=>q.t===e.t);if(p)s+=`<circle cx="${X(e.t)}" cy="${Y(p.v)}" r="8" fill="${EVC[e.type]}" stroke="#fff" stroke-width="2"/>`;}
-  $("chart").innerHTML=s+"</svg>";
+  for(const e of curA.events){if(e.t<t0||e.t>t1)continue;const p=P.find(q=>q.t===e.t);if(p)s+=`<circle cx="${X(e.t)}" cy="${Y(p.v)}" r="8" fill="${EVC[e.type]}" stroke="#fff" stroke-width="2"/>`;}
+  /* kursor */
+  s+=`<g id="chCur" style="display:none"><line id="chCl" y1="${mt}" y2="${H-mb}" stroke="#000" stroke-width="2"/><circle id="chCd" r="7" fill="#fff" stroke="#000" stroke-width="3"/>
+    <rect id="chCb" y="2" height="30" rx="6" fill="#000" opacity=".85"/><text id="chCt" y="24" fill="#fff" font-size="20" font-weight="700" text-anchor="middle"></text></g>`;
+  const zoomed=t1-t0<T1-T0-1000;
+  box.innerHTML=`<div class="row" style="margin-bottom:4px"><button class="sm" id="chP" title="powiększ">＋</button><button class="sm" id="chM" title="pomniejsz">－</button><button class="sm" id="chA">cały dzień</button><span class="note grow" id="chI">${fmtT(t0)}–${fmtT(t1)} · przesuń palcem po wykresie, aby zobaczyć godzinę i prędkość; dwa palce – powiększanie</span></div>`+s+"</svg>"+
+    (zoomed?`<input id="chR" type="range" min="0" max="1000" value="${Math.round((t0-T0)/((T1-T0)-(t1-t0))*1000)}" style="width:100%">`:"");
+  const zoomAt=(f,tc)=>{const sp=(CHW.t1-CHW.t0)*f;tc=tc??(CHW.t0+CHW.t1)/2;const r=(tc-CHW.t0)/(CHW.t1-CHW.t0);CHW.t0=tc-sp*r;CHW.t1=CHW.t0+sp;
+    if(CHW.t0<T0){CHW.t1+=T0-CHW.t0;CHW.t0=T0;}if(CHW.t1>T1){CHW.t0-=CHW.t1-T1;CHW.t1=T1;}drawChart(true);};
+  $("chP").onclick=()=>zoomAt(0.5,chLast);$("chM").onclick=()=>zoomAt(2,chLast);$("chA").onclick=()=>{CHW=null;drawChart();};
+  if($("chR"))$("chR").oninput=e=>{const sp=CHW.t1-CHW.t0;CHW.t0=T0+(T1-T0-sp)*e.target.value/1000;CHW.t1=CHW.t0+sp;drawChart(true);};
+  const svg=$("chSvg");const vx=cx=>{const r=svg.getBoundingClientRect();return (cx-r.left)/r.width*W;};
+  const tOf=x=>t0+(Math.min(W-mr,Math.max(ml,x))-ml)/(W-ml-mr)*(t1-t0);
+  const cursor=t=>{let lo=0,hi=P.length-1;while(hi-lo>1){const m=(lo+hi)>>1;if(P[m].t<=t)lo=m;else hi=m;}const p=Math.abs(P[lo].t-t)<=Math.abs(P[hi].t-t)?P[lo]:P[hi];
+    chLast=p.t;const x=X(p.t),y=Y(p.v);$("chCur").style.display="";$("chCl").setAttribute("x1",x);$("chCl").setAttribute("x2",x);$("chCd").setAttribute("cx",x);$("chCd").setAttribute("cy",y);
+    const txt=`${fmtTs(p.t)} · ${fmtV(p.v)}${p.hr!=null?" · ♥ "+nf0.format(p.hr):""}`;const w=txt.length*11+20;const bx=Math.min(W-w-2,Math.max(2,x-w/2));
+    $("chCb").setAttribute("x",bx);$("chCb").setAttribute("width",w);$("chCt").setAttribute("x",bx+w/2);$("chCt").textContent=txt;
+    if(window.__seek)window.__seek(p.t);};
+  if(chLast!=null&&chLast>=t0&&chLast<=t1)cursor(chLast);
+  const pts=new Map();let pinch=null;
+  svg.onpointerdown=e=>{svg.setPointerCapture(e.pointerId);pts.set(e.pointerId,e.clientX);
+    if(pts.size===2){const [x1,x2]=[...pts.values()];pinch={d:Math.abs(x1-x2)||1,tc:tOf(vx((x1+x2)/2)),w0:CHW.t0,w1:CHW.t1};}else cursor(tOf(vx(e.clientX)));};
+  svg.onpointermove=e=>{if(!pts.has(e.pointerId))return;pts.set(e.pointerId,e.clientX);
+    if(pts.size===2&&pinch){const [x1,x2]=[...pts.values()];const f=pinch.d/(Math.abs(x1-x2)||1);const sp=Math.min(T1-T0,Math.max(minSpan,(pinch.w1-pinch.w0)*f));
+      const r=(pinch.tc-pinch.w0)/(pinch.w1-pinch.w0);CHW.t0=pinch.tc-sp*r;CHW.t1=CHW.t0+sp;if(CHW.t0<T0){CHW.t1+=T0-CHW.t0;CHW.t0=T0;}if(CHW.t1>T1){CHW.t0-=CHW.t1-T1;CHW.t1=T1;}
+      const sv=$("chSvg");if(sv)sv.style.opacity=".55";$("chI").textContent=`${fmtT(CHW.t0)}–${fmtT(CHW.t1)} · puść palce, aby powiększyć`;}
+    else if(pts.size===1)cursor(tOf(vx(e.clientX)));};
+  svg.onpointerup=svg.onpointercancel=e=>{pts.delete(e.pointerId);if(pts.size<2&&pinch){pinch=null;pts.clear();drawChart(true);}};
+  svg.onwheel=e=>{e.preventDefault();zoomAt(e.deltaY<0?0.8:1.25,tOf(vx(e.clientX)));};
 }
+let chLast=null;
 /* dotknięcie trasy: godzina i prędkość w najbliższym punkcie pomiaru */
 function trackClick(e){
   if(!curA||!MAP)return;const P=curA.P;if(!P.length)return;
@@ -833,9 +867,12 @@ function setupPlay(){
     return {lat:a.lat+(b.lat-a.lat)*f,lon:a.lon+(b.lon-a.lon)*f,v:a.v+(b.v-a.v)*f,gap:b.t-a.t>15000};};
   const upd=()=>{const p=at(tt);$("pInfo").textContent=fmtTs(tt)+" · "+(p.gap?"brak pomiaru":fmtV(p.v));rng.value=Math.round((tt-t0)/(t1-t0)*1000);
     if(MAP){if(!PLAYM)PLAYM=L.circleMarker([p.lat,p.lon],{radius:9,color:"#000",weight:3,fillColor:"#fff",fillOpacity:1}).addTo(MAP);else PLAYM.setLatLng([p.lat,p.lon]);}};
-  PLAYM=null;rng.oninput=()=>{tt=t0+(t1-t0)*rng.value/1000;upd();};
+  /* kropka odtwarzania zawsze na środku mapy – przesuwa się mapa */
+  const center=()=>{if(MAP&&PLAYM)MAP.setView(PLAYM.getLatLng(),MAP.getZoom(),{animate:false});};
+  PLAYM=null;rng.oninput=()=>{tt=t0+(t1-t0)*rng.value/1000;upd();center();};
+  window.__seek=t=>{if(playing)return;tt=t;upd();center();};
   const loop=ts=>{if(!playing)return;const dt=last?ts-last:0;last=ts;tt+=dt*(+$("pSpd").value);if(tt>=t1){tt=t1;playing=false;$("pBtn").textContent="▶";}
-    upd();if(MAP&&PLAYM&&!MAP.getBounds().contains(PLAYM.getLatLng()))MAP.panTo(PLAYM.getLatLng());if(playing)requestAnimationFrame(loop);};
+    upd();center();if(playing)requestAnimationFrame(loop);};
   $("pBtn").onclick=()=>{playing=!playing;$("pBtn").textContent=playing?"⏸":"▶";last=0;if(tt>=t1)tt=t0;if(playing)requestAnimationFrame(loop);};
   upd();
 }
