@@ -303,7 +303,7 @@ function fromCols(c,src){const n=c?c.t.length:0,o=new Array(n);const nn=x=>isNaN
   for(let i=0;i<n;i++)o[i]={t:c.t[i],lat:c.lat[i],lon:c.lon[i],sp:nn(c.sp[i]),acc:nn(c.acc[i]),hr:nn(c.hr[i]),ele:nn(c.ele[i]),src};return o;}
 function mergePts(a,b){const all=a.concat(b).filter(p=>isFinite(p.t)&&isFinite(p.lat)&&isFinite(p.lon)&&Math.abs(p.lat)<=90&&Math.abs(p.lon)<=180).sort((x,y)=>x.t-y.t);
   const u=[];for(const p of all){const L=u[u.length-1];if(L&&p.t-L.t<300){if(p.acc!=null&&(L.acc==null||p.acc<L.acc))u[u.length-1]=p;continue;}u.push(p);}return u;}
-const APPVER="5.11.2026 23:20";
+const APPVER="7.11.2026 05:40";
 let CALLS=[];
 async function initStore(){
   const st=$("store");
@@ -665,7 +665,7 @@ async function show(k,keepView){
   let d=null;try{d=await loadDay(k);}catch(e){}
   if(tok!==renderTok)return;
   if(!d){V.innerHTML='<div class="card note">Nie udało się wczytać dnia.</div>';return;}
-  const A=analyzeDay(d);curA=A;const {P,segs,events}=A;A.calls=dayCalls(k,P,segs);
+  const A=analyzeDay(d);curA=A;const {P,segs,events}=A;A.calls=dayCalls(k,P,segs);A.cross=await crossInfo(k,A);
   const agg={};for(const c in CLS)agg[c]={t:0,d:0};let mx=null,mxAt=null;
   for(const s of segs){agg[s.c].t+=(s.t1-s.t0)/1000;agg[s.c].d+=s.d||0;if(s.max!=null&&s.c!=="stay"&&(mx==null||s.max>mx)){mx=s.max;mxAt=s.maxAt;}}
   const mov=["walk","run","bike","drive"];const mvT=mov.reduce((a,c)=>a+agg[c].t,0),mvD=mov.reduce((a,c)=>a+agg[c].d,0);
@@ -752,14 +752,37 @@ function selSeg(q,fromMap){
   if(fromMap){const li=document.querySelector(`.tl>li[data-q="${q}"]`);if(li)li.scrollIntoView({block:"nearest",behavior:"smooth"});}
   else document.getElementById("map").scrollIntoView({block:"nearest",behavior:"smooth"});
 }
+/* pobyt trwający przez północ: początek z poprzedniego dnia / koniec w następnym dniu */
+const dayShift=(k,n)=>{const [y,m,d]=k.split("-").map(Number);return dateKey(new Date(y,m-1,d+n,12).getTime());};
+const wdS=t=>new Date(t).toLocaleDateString("pl-PL",{weekday:"short"});
+async function crossInfo(k,A){const out={};const S=A.segs;if(!S.length)return out;
+  const [y,m,d]=k.split("-").map(Number);const ds=new Date(y,m-1,d).getTime(),de=new Date(y,m-1,d+1).getTime();
+  try{const s0=S[0],pk=dayShift(k,-1);
+    if(s0.c==="stay"&&s0.t0-ds<180000&&INDEX.days[pk]){const pd=await loadDay(pk);if(pd){const pa=analyzeDay(pd);const ps=pa.segs[pa.segs.length-1];
+      if(ps&&ps.c==="stay"&&ds-ps.t1<180000&&hav(ps.lat,ps.lon,s0.lat,s0.lon)<=150)out.prev={t0:ps.t0};}}
+    const sl=S[S.length-1],nk=dayShift(k,1);
+    if(sl.c==="stay"&&de-sl.t1<180000&&INDEX.days[nk]){const nd=await loadDay(nk);if(nd){const na=analyzeDay(nd);const ns=na.segs[0];
+      if(ns&&ns.c==="stay"&&ns.t0-de<180000&&hav(ns.lat,ns.lon,sl.lat,sl.lon)<=150)out.next={t1:ns.t1,open:na.segs.length===1&&nk===dateKey(Date.now())};}}}catch(e){}
+  return out;}
+/* bieżące położenie telefonu przy ręcznej synchronizacji (GPSLogger wysyła plik co 30 min) */
+let LIVE=null;
+function getLive(){return new Promise(res=>{if(!navigator.geolocation)return res(null);
+  navigator.geolocation.getCurrentPosition(p=>{LIVE={t:Date.now(),lat:p.coords.latitude,lon:p.coords.longitude,acc:p.coords.accuracy};res(LIVE);},()=>res(null),{enableHighAccuracy:true,timeout:20000,maximumAge:0});});}
+const liveFresh=()=>LIVE&&Date.now()-LIVE.t<15*60000;
 function buildTimeline(d){
-  const {P,segs,events}=curA;const UL=$("tl");let nr=0;
+  const {P,segs,events}=curA;const UL=$("tl");let nr=0;liveUsed=false;
   segs.forEach((s,q)=>{
     const li=document.createElement("li");li.dataset.q=q;const dur=(s.t1-s.t0)/1000;
     /* ostatni wpis dzisiejszego dnia: koniec nieznany, bo brak nowszych danych */
-    const open=q===segs.length-1&&!s.gap&&dateKey(s.t0)===dateKey(Date.now());
-    const span=open?`${fmtTs(s.t0)} – <b style="color:#c92a2a">nie zaktualizowane</b> <span class="note">(ostatni zapis ${fmtTs(s.t1)}, ${fmtDur(Math.max(0,(Date.now()-s.t1)/1000))} temu)</span>`:`${fmtTs(s.t0)} – ${fmtTs(s.t1)}`;
-    const durTxt=open?"co najmniej "+fmtDur(dur):fmtDur(dur);
+    const open=q===segs.length-1&&!s.gap&&dateKey(s.t1)===dateKey(Date.now());const C=curA.cross||{};
+    const pv=q===0&&C.prev?C.prev:null,nx=q===segs.length-1&&!open&&C.next?C.next:null;const t0e=pv?pv.t0:s.t0;
+    const startTxt=pv?`<b>${wdS(pv.t0)} ${fmtTs(pv.t0)}</b> <span class="note">(poprzedni dzień)</span>`:fmtTs(s.t0);
+    const live=open&&liveFresh()&&LIVE.t>s.t1&&s.c==="stay"&&hav(LIVE.lat,LIVE.lon,s.lat,s.lon)<=Math.max(60,LIVE.acc*1.5);if(open)liveUsed=live;
+    let span,durTxt;
+    if(live){span=`${startTxt} – <b style="color:#2f9e44">teraz ${fmtT(LIVE.t)}</b> <span class="note">(położenie telefonu potwierdzone o ${fmtTs(LIVE.t)}; ostatni zapis GPSLoggera ${fmtTs(s.t1)})</span>`;durTxt=fmtDur((LIVE.t-t0e)/1000)+" do teraz";}
+    else if(open){span=`${startTxt} – <b style="color:#c92a2a">nie zaktualizowane</b> <span class="note">(ostatni zapis ${fmtTs(s.t1)}, ${fmtDur(Math.max(0,(Date.now()-s.t1)/1000))} temu)</span>`;durTxt="co najmniej "+fmtDur((s.t1-t0e)/1000);}
+    else if(nx){span=`${startTxt} – ${fmtTs(s.t1)} → <b>trwał dalej: ${wdS(nx.t1)} ${nx.open?"co najmniej do ":""}${fmtTs(nx.t1)}</b> <span class="note">(następny dzień)</span>`;durTxt=fmtDur(dur)+" w tym dniu · łącznie "+(nx.open?"co najmniej ":"")+fmtDur((nx.t1-t0e)/1000);}
+    else{span=`${startTxt} – ${fmtTs(s.t1)}`;durTxt=pv?fmtDur((s.t1-t0e)/1000)+" łącznie · w tym dniu "+fmtDur(dur):fmtDur(dur);}
     const col=s.c==="stay"?ccol("stay"):s.gap?ccol("gap"):ccol(s.c);
     let body="";
     if(s.c==="stay"){nr++;
@@ -775,7 +798,7 @@ function buildTimeline(d){
     if(s.note)body+=`<div class="de">📝 ${esc(s.note)}</div>`;
     if(s.edited)body+=`<span class="badge">poprawione ręcznie</span>`;
     body+=`<div class="act">${s.gap?"":`<button class="sm" data-ed>Korekta</button>`}${s.c==="stay"?`<button class="sm" data-pl>Nazwij miejsce</button>`:""}<a class="note" target="_blank" rel="noopener" href="https://www.openstreetmap.org/?mlat=${(s.lat??P[s.i0].lat).toFixed(6)}&mlon=${(s.lon??P[s.i0].lon).toFixed(6)}#map=18/${(s.lat??P[s.i0].lat).toFixed(6)}/${(s.lon??P[s.i0].lon).toFixed(6)}">OSM</a></div>`;
-    li.innerHTML=`<div class="tm">${fmtT(s.t0)}<br>${open?"–":fmtT(s.t1)}</div><div class="bar" style="background:${col}"></div><div>${body}</div>`;
+    li.innerHTML=`<div class="tm">${pv?`<span class="note">${wdS(pv.t0)}</span> ${fmtT(pv.t0)}`:fmtT(s.t0)}<br>${live?"teraz":open?"–":nx?`<span class="note">${wdS(nx.t1)}</span> ${fmtT(nx.t1)}`:fmtT(s.t1)}</div><div class="bar" style="background:${col}"></div><div>${body}</div>`;
     li.onclick=ev=>{if(ev.target.closest("button,a"))return;selSeg(q);};
     UL.appendChild(li);
     if(s.c==="stay")fillAddr(li.querySelector("[data-a]"),s.lat,s.lon);
@@ -785,7 +808,15 @@ function buildTimeline(d){
     const eb=li.querySelector("[data-ed]");if(eb)eb.onclick=()=>editSeg(d,s);
     const pb=li.querySelector("[data-pl]");if(pb)pb.onclick=()=>namePlace(s);
   });
+  const today=segs.length&&dateKey(segs[segs.length-1].t1)===dateKey(Date.now());
+  if(today&&liveFresh()&&!liveUsed&&LIVE.t>P[P.length-1].t){const lp=P[P.length-1];const dm=hav(LIVE.lat,LIVE.lon,lp.lat,lp.lon);
+    const li=document.createElement("li");
+    li.innerHTML=`<div class="tm">teraz<br>${fmtT(LIVE.t)}</div><div class="bar" style="background:#2f9e44"></div><div><div class="ti"><span class="pill" style="background:#2f9e44">TERAZ</span> położenie telefonu o ${fmtTs(LIVE.t)}</div><div class="ad" data-a></div>
+      <div class="de">${dm<=Math.max(60,LIVE.acc*1.5)?"w tym samym miejscu co ostatni zapis":`${fmtKm(dm)} od ostatniego zapisu (${fmtTs(lp.t)})`} · dokładność ±${nf0.format(LIVE.acc)} m</div>
+      <div class="de note">Pełna trasa od ${fmtT(lp.t)} pojawi się, gdy GPSLogger wyśle kolejny plik (co 30 min).</div></div>`;
+    UL.appendChild(li);fillAddr(li.querySelector("[data-a]"),LIVE.lat,LIVE.lon);}
 }
+let liveUsed=false;
 /* wykres prędkości (i tętna): powiększanie (przyciski, dwa palce, kółko myszy), przesuwanie,
    przeciągnięcie palcem pokazuje godzinę i prędkość oraz przesuwa kropkę na mapie */
 let CHW=null;
@@ -1180,6 +1211,7 @@ async function driveSync(interactive){
     msg((todo.length?`Dysk: przetworzono plików ${todo.length}, punktów ${nf0.format(n)}.`:"Dysk: brak nowych plików.")+(callsNew?` Nowe połączenia: ${callsNew}.`:"")+(missing.length?` Brak folderu: ${missing.join(", ")}.`:"")+(errs.length?" Problemy: "+errs.join(" · "):""),!!errs.length);
     if(keys.length){keys.sort();refreshDays(interactive||cur===lastBefore||!cur?keys[keys.length-1]:cur,!interactive&&(cur===keys[keys.length-1]));autoBackup();}
     else if(callsNew&&cur)show(cur,true);
+    if(interactive)getLive().then(l=>{if(l&&cur===dateKey(Date.now()))show(cur,true);else if(!l)msg("Nie udało się pobrać bieżącego położenia telefonu (brak zgody na lokalizację?).",true);});
   }catch(e){msg("Dysk: "+e.message,true);}
   finally{syncing=false;driveUI();}
 }
