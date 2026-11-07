@@ -76,6 +76,8 @@ svg{display:block;width:100%;height:auto}
 .cn{font-weight:600}.ck{font-variant-numeric:tabular-nums;color:var(--mut);font-size:11px}
 .cb{display:flex;height:4px;border-radius:2px;overflow:hidden;margin-top:3px}
 .pill{display:inline-block;color:#fff;font-size:11px;font-weight:700;letter-spacing:.03em;padding:1px 7px;border-radius:9px;vertical-align:1px}
+.num{display:inline-block;min-width:22px;height:22px;line-height:22px;border-radius:11px;background:#1c3d7a;color:#fff;font:700 13px system-ui;text-align:center;padding:0 4px;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.5);vertical-align:1px}
+.numg{display:flex;gap:2px;white-space:nowrap}
 .call.sm{display:inline-block;width:18px;height:18px;font-size:10px;line-height:15px;vertical-align:middle;border-width:1px}.cl1{cursor:pointer;white-space:nowrap;margin-right:8px}
 .call{width:24px;height:24px;border-radius:50%;border:2px solid #000;color:#fff;font-size:13px;line-height:20px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.5)}
 </style>
@@ -303,7 +305,7 @@ function fromCols(c,src){const n=c?c.t.length:0,o=new Array(n);const nn=x=>isNaN
   for(let i=0;i<n;i++)o[i]={t:c.t[i],lat:c.lat[i],lon:c.lon[i],sp:nn(c.sp[i]),acc:nn(c.acc[i]),hr:nn(c.hr[i]),ele:nn(c.ele[i]),src};return o;}
 function mergePts(a,b){const all=a.concat(b).filter(p=>isFinite(p.t)&&isFinite(p.lat)&&isFinite(p.lon)&&Math.abs(p.lat)<=90&&Math.abs(p.lon)<=180).sort((x,y)=>x.t-y.t);
   const u=[];for(const p of all){const L=u[u.length-1];if(L&&p.t-L.t<300){if(p.acc!=null&&(L.acc==null||p.acc<L.acc))u[u.length-1]=p;continue;}u.push(p);}return u;}
-const APPVER="7.11.2026 05:40";
+const APPVER="7.11.2026 06:30";
 let CALLS=[];
 async function initStore(){
   const st=$("store");
@@ -415,6 +417,10 @@ function analyze(d){
   absorb(s=>isMov(s)&&!s.lock,S.min*1000);
   /* chód/bieg wciśnięty między dwa odcinki jazdy bez pobytu = jazda w korku */
   for(let q=1;q<segs.length-1;q++){const s=segs[q];if((s.c==="walk"||s.c==="run")&&segs[q-1].c==="drive"&&segs[q+1].c==="drive"&&dur(s)<5*60000)s.c="drive";}
+  /* „bieg” (7–14 km/h) to zwykle wolna jazda autem: ruszanie, parkowanie, manewry. Zostaje biegiem tylko,
+     gdy trwa co najmniej 5 min, nie przekracza 20 km/h i nie przylega do jazdy */
+  for(let q=0;q<segs.length;q++){const s=segs[q];if(s.c!=="run")continue;let mx=0;for(let i=s.i0;i<=s.i1;i++)mx=Math.max(mx,P[i].v);
+    if(dur(s)<5*60000||mx>20||(segs[q-1]&&segs[q-1].c==="drive")||(segs[q+1]&&segs[q+1].c==="drive"))s.c="drive";}
   join();
   /* granice czasowe: koniec pobytu = ostatni pomiar w miejscu; ruch trwa do pierwszego pomiaru następnego pobytu */
   for(let q=0;q<segs.length;q++){const s=segs[q],nx=segs[q+1];
@@ -671,12 +677,19 @@ async function show(k,keepView){
   const mov=["walk","run","bike","drive"];const mvT=mov.reduce((a,c)=>a+agg[c].t,0),mvD=mov.reduce((a,c)=>a+agg[c].d,0);
   const ec={brake:0,accel:0,corner:0};for(const e of events)ec[e.type]++;
   const tile=(k,v,s,c)=>`<div class="tile"><div class="k">${c?`<span class="sw" style="background:${ccol(c)}"></span>`:""}${k}</div><div class="v">${v}</div>${s?`<div class="s">${s}</div>`:""}</div>`;
-  const ct=c=>agg[c].t>0?tile(CLS[c].n,fmtDur(agg[c].t),c==="stay"?segs.filter(s=>s.c==="stay").length+" miejsc":fmtKm(agg[c].d),c):"";
+  /* pobyty: osobno dom i każde nazwane miejsce, reszta jako „Pobyt (inne miejsca)” */
+  const pAgg=new Map();let oT=0,oN=0;
+  for(const s of segs){if(s.c!=="stay")continue;const pl=placeAt(s.lat,s.lon);const dt=(s.t1-s.t0)/1000;
+    if(pl){const a=pAgg.get(pl.p.id)||{p:pl.p,t:0,n:0};a.t+=dt;a.n++;pAgg.set(pl.p.id,a);}else{oT+=dt;oN++;}}
+  const isHome=p=>p.kind==="Dom"||/^dom$/i.test(p.name.trim());
+  const placeTiles=[...pAgg.values()].sort((a,b)=>(isHome(b.p)-isHome(a.p))||b.t-a.t).map(a=>tile(isHome(a.p)?"W domu":esc(a.p.name),fmtDur(a.t),(isHome(a.p)?"":esc(a.p.kind||""))+(a.n>1?(isHome(a.p)?"":" · ")+a.n+" razy":""),"stay")).join("");
+  const ct=c=>c==="stay"?(oT>0?tile("Pobyt – inne miejsca",fmtDur(oT),oN+(oN===1?" miejsce":oN%10>=2&&oN%10<=4&&(oN%100<12||oN%100>14)?" miejsca":" miejsc"),"stay"):""):agg[c].t>0?tile(c==="drive"?"Jazda (pojazdem)":c==="walk"?"Pieszo":CLS[c].n,fmtDur(agg[c].t),fmtKm(agg[c].d),c):"";
+  const foot=agg.walk.t+agg.run.t;
   const qual=`Punktów: ${nf0.format(P.length)} z ${nf0.format(A.nRaw)} (odrzucone: ${A.dropAcc} słaba dokładność, ${A.dropJump} skoki) · prędkość z odbiornika: ${nf0.format(A.dop*100)}% · z zegarka: ${nf0.format(A.watch*100)}%`;
   let h=gapWarn(k,A)+`<div class="card"><div class="tiles">
-    ${tile("W ruchu",fmtKm(mvD),fmtDur(mvT))}
+    ${tile("W ruchu",fmtKm(mvD),fmtDur(mvT)+(agg.drive.t&&foot?`<br>autem ${fmtDur(agg.drive.t)} · pieszo ${fmtDur(foot)}`:""))}
     ${tile("Maks. prędkość",fmtV(mx),mxAt!=null?"o "+fmtTs(P[mxAt].t):"")}
-    ${ct("drive")}${ct("walk")}${ct("run")}${ct("bike")}${ct("stay")}
+    ${ct("drive")}${ct("walk")}${ct("run")}${ct("bike")}${placeTiles}${ct("stay")}
     ${tile("Zdarzenia",ec.brake+ec.accel+ec.corner,`<span class="dot" style="background:${EVC.brake}"></span>${ec.brake} <span class="dot" style="background:${EVC.accel}"></span>${ec.accel} <span class="dot" style="background:${EVC.corner}"></span>${ec.corner}`)}
   </div><p class="note" style="margin:8px 0 0">${qual}${A.dop<0.5?" · <b>zdarzenia jazdy wymagają prędkości z odbiornika (GPS Logger: CSV/GPX z polem speed, interwał 1 s)</b>":""}</p></div>`;
   h+=`<div class="card"><div class="row" style="margin-bottom:8px"><b class="grow">Mapa</b>
@@ -723,10 +736,13 @@ function drawTrack(){
     if(!run.length)run.push([a.lat,a.lon]);run.push([b.lat,b.lon]);}
   flush();
   /* pobyty */
-  let nr=0;
+  let nr=0;const grp=[];
+  segs.forEach(s=>{if(s.c!=="stay")return;nr++;let g=grp.find(g=>hav(g.lat,g.lon,s.lat,s.lon)<=40);if(!g){g={lat:s.lat,lon:s.lon,n:[]};grp.push(g);}g.n.push(nr);});
+  nr=0;
   segs.forEach((s,q)=>{if(s.c!=="stay")return;nr++;
     L.circle([s.lat,s.lon],{radius:Math.max(8,s.spread||0),color:"#444",weight:1,fillColor:"#666",fillOpacity:.15,bubblingMouseEvents:false}).addTo(LAY);
-    const m=L.marker([s.lat,s.lon],{icon:L.divIcon({className:"",html:`<div class="lbl">${nr}</div>`,iconSize:null})}).addTo(LAY);
+    const g=grp.find(g=>g.n.includes(nr));const first=g.n[0]===nr;
+    const m=L.marker([g.lat,g.lon],{icon:L.divIcon({className:"",html:first?`<div class="numg">${g.n.map(x=>`<span class="num">${x}</span>`).join("")}</div>`:"",iconSize:null,iconAnchor:[12,12]}),zIndexOffset:first?400:0}).addTo(LAY);
     m.on("click",()=>selSeg(q,true));m.bindPopup(()=>{const pl=placeAt(s.lat,s.lon);const g=GEO.get(gkey(s.lat,s.lon));
       return `<b>Pobyt ${nr}</b>${pl?" – "+esc(pl.p.name):""}<br>${fmtTs(s.t0)} – ${q===segs.length-1&&dateKey(s.t0)===dateKey(Date.now())?"nie zaktualizowane (ostatni zapis "+fmtTs(s.t1)+")":fmtTs(s.t1)+" ("+fmtDur((s.t1-s.t0)/1000)+")"}<br>${esc(addrTxt(g))}<br><span style="color:#666">położenie ±${nf0.format(s.spread||0)} m${s.acc!=null?", dokładność GPS "+nf0.format(s.acc)+" m":""}</span>`;});});
   /* zdarzenia */
@@ -786,7 +802,7 @@ function buildTimeline(d){
     const col=s.c==="stay"?ccol("stay"):s.gap?ccol("gap"):ccol(s.c);
     let body="";
     if(s.c==="stay"){nr++;
-      body=`<div class="ti"><span class="pill" style="background:${ccol("stay")}">POSTÓJ</span> Pobyt ${nr} · ${durTxt}</div><div class="ad" data-a></div>
+      body=`<div class="ti"><span class="num">${nr}</span> <span class="pill" style="background:${ccol("stay")}">POSTÓJ</span> ${durTxt}</div><div class="ad" data-a></div>
         <div class="de">${span} · położenie ±${nf0.format(s.spread||0)} m${s.acc!=null?" · GPS "+nf0.format(s.acc)+" m":""}${s.hr?" · tętno śr. "+nf0.format(s.hr):""}</div>`;}
     else if(s.gap){body=`<div class="ti"><span class="pill" style="background:${ccol("gap")};color:#222">BRAK DANYCH</span> ${fmtDur(dur)}</div><div class="de">${fmtTs(s.t0)} – ${fmtTs(s.t1)} · przemieszczenie w linii prostej ${fmtKm(s.d)}</div>`;}
     else{const avg=dur>0?s.d/dur*3.6:null;const e=s.ev||{brake:0,accel:0,corner:0};
