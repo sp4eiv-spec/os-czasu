@@ -305,7 +305,7 @@ function fromCols(c,src){const n=c?c.t.length:0,o=new Array(n);const nn=x=>isNaN
   for(let i=0;i<n;i++)o[i]={t:c.t[i],lat:c.lat[i],lon:c.lon[i],sp:nn(c.sp[i]),acc:nn(c.acc[i]),hr:nn(c.hr[i]),ele:nn(c.ele[i]),src};return o;}
 function mergePts(a,b){const all=a.concat(b).filter(p=>isFinite(p.t)&&isFinite(p.lat)&&isFinite(p.lon)&&Math.abs(p.lat)<=90&&Math.abs(p.lon)<=180).sort((x,y)=>x.t-y.t);
   const u=[];for(const p of all){const L=u[u.length-1];if(L&&p.t-L.t<300){if(p.acc!=null&&(L.acc==null||p.acc<L.acc))u[u.length-1]=p;continue;}u.push(p);}return u;}
-const APPVER="7.11.2026 09:20";
+const APPVER="7.11.2026 09:40";
 let CALLS=[];
 async function initStore(){
   const st=$("store");
@@ -687,17 +687,17 @@ async function show(k,keepView){
   const tile=(k,v,s,c)=>`<div class="tile"><div class="k">${c?`<span class="sw" style="background:${ccol(c)}"></span>`:""}${k}</div><div class="v">${v}</div>${s?`<div class="s">${s}</div>`:""}</div>`;
   /* pobyty: osobno dom i każde nazwane miejsce, reszta jako „Pobyt (inne miejsca)” */
   const pAgg=new Map();let oT=0,oN=0;
-  for(let q=0;q<segs.length;q++){const s=segs[q];if(s.c!=="stay")continue;const pl=placeAt(s.lat,s.lon);const dt=(s.t1-s.t0)/1000;
-    if(pl){const a=pAgg.get(pl.p.id)||{p:pl.p,t:0,n:0,ext:0,since:null,now:false};a.t+=dt;a.n++;
+  /* kafelki tylko dla domu i pracy; każde inne miejsce (także nazwane) trafia do „Pobyty – inne miejsca” */
+  const grpOf=p=>(p.kind==="Dom"||/^dom\b/i.test(p.name.trim()))?"Dom":(p.kind==="Praca"||/^praca\b/i.test(p.name.trim()))?"Praca":null;
+  for(let q=0;q<segs.length;q++){const s=segs[q];if(s.c!=="stay")continue;const pl=placeAt(s.lat,s.lon);const dt=(s.t1-s.t0)/1000;const g=pl&&grpOf(pl.p);
+    if(g){const a=pAgg.get(g)||{g,t:0,n:0,ext:0,since:null,now:false};a.t+=dt;a.n++;
       /* rzeczywisty czas pobytu: początek z poprzedniego dnia i (przy potwierdzonym położeniu) do teraz */
       if(q===0&&A.cross&&A.cross.prev){a.ext+=(s.t0-A.cross.prev.t0)/1000;a.since=A.cross.prev.t0;}
       if(q===segs.length-1&&liveFresh()&&LIVE.t>s.t1&&hav(LIVE.lat,LIVE.lon,s.lat,s.lon)<=Math.max(60,LIVE.acc*1.5)){a.ext+=(LIVE.t-s.t1)/1000;a.now=true;}
-      pAgg.set(pl.p.id,a);}else{oT+=dt;oN++;}}
-  const isHome=p=>p.kind==="Dom"||/^dom$/i.test(p.name.trim());
-  const placeTiles=[...pAgg.values()].sort((a,b)=>(isHome(b.p)-isHome(a.p))||b.t-a.t).map(a=>{
-    const sub=[isHome(a.p)?"":esc(a.p.kind||""),a.since?`od ${wdS(a.since)} ${fmtT(a.since)}`:"",a.ext?`w tym dniu ${fmtDur(a.t)}`:"",a.now?"do teraz":"",a.n>1?a.n+" razy":""].filter(Boolean).join(" · ");
-    const res=RESK.includes(a.p.kind)||/^(dom|praca)$/i.test(a.p.name.trim());
-    return tile(isHome(a.p)?"Dom":esc(a.p.name),fmtDur(a.t+a.ext),sub,"stay");}).join("");
+      pAgg.set(g,a);}else{oT+=dt;oN++;}}
+  const placeTiles=["Dom","Praca"].filter(g=>pAgg.has(g)).map(g=>{const a=pAgg.get(g);
+    const sub=[a.since?`od ${wdS(a.since)} ${fmtT(a.since)}`:"",a.ext?`w tym dniu ${fmtDur(a.t)}`:"",a.now?"do teraz":"",a.n>1?a.n+" razy":""].filter(Boolean).join(" · ");
+    return tile(g,fmtDur(a.t+a.ext),sub,"stay");}).join("");
   const ct=c=>c==="stay"?(oT>0?tile("Pobyty – inne miejsca",fmtDur(oT),oN+(oN===1?" miejsce":oN%10>=2&&oN%10<=4&&(oN%100<12||oN%100>14)?" miejsca":" miejsc"),"stay"):""):agg[c].t>0?tile(c==="drive"?"Jazda (pojazdem)":c==="walk"?"Pieszo":CLS[c].n,fmtDur(agg[c].t),fmtKm(agg[c].d),c):"";
   const foot=agg.walk.t+agg.run.t;
   const qual=`Punktów: ${nf0.format(P.length)} z ${nf0.format(A.nRaw)} (odrzucone: ${A.dropAcc} słaba dokładność, ${A.dropJump} skoki) · prędkość z odbiornika: ${nf0.format(A.dop*100)}% · z zegarka: ${nf0.format(A.watch*100)}%`;
