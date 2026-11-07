@@ -305,7 +305,7 @@ function fromCols(c,src){const n=c?c.t.length:0,o=new Array(n);const nn=x=>isNaN
   for(let i=0;i<n;i++)o[i]={t:c.t[i],lat:c.lat[i],lon:c.lon[i],sp:nn(c.sp[i]),acc:nn(c.acc[i]),hr:nn(c.hr[i]),ele:nn(c.ele[i]),src};return o;}
 function mergePts(a,b){const all=a.concat(b).filter(p=>isFinite(p.t)&&isFinite(p.lat)&&isFinite(p.lon)&&Math.abs(p.lat)<=90&&Math.abs(p.lon)<=180).sort((x,y)=>x.t-y.t);
   const u=[];for(const p of all){const L=u[u.length-1];if(L&&p.t-L.t<300){if(p.acc!=null&&(L.acc==null||p.acc<L.acc))u[u.length-1]=p;continue;}u.push(p);}return u;}
-const APPVER="7.11.2026 07:00";
+const APPVER="7.11.2026 08:10";
 let CALLS=[];
 async function initStore(){
   const st=$("store");
@@ -696,8 +696,9 @@ async function show(k,keepView){
   const isHome=p=>p.kind==="Dom"||/^dom$/i.test(p.name.trim());
   const placeTiles=[...pAgg.values()].sort((a,b)=>(isHome(b.p)-isHome(a.p))||b.t-a.t).map(a=>{
     const sub=[isHome(a.p)?"":esc(a.p.kind||""),a.since?`od ${wdS(a.since)} ${fmtT(a.since)}`:"",a.ext?`w tym dniu ${fmtDur(a.t)}`:"",a.now?"do teraz":"",a.n>1?a.n+" razy":""].filter(Boolean).join(" · ");
-    return tile(isHome(a.p)?"W domu":esc(a.p.name),fmtDur(a.t+a.ext),sub,"stay");}).join("");
-  const ct=c=>c==="stay"?(oT>0?tile("Pobyt – inne miejsca",fmtDur(oT),oN+(oN===1?" miejsce":oN%10>=2&&oN%10<=4&&(oN%100<12||oN%100>14)?" miejsca":" miejsc"),"stay"):""):agg[c].t>0?tile(c==="drive"?"Jazda (pojazdem)":c==="walk"?"Pieszo":CLS[c].n,fmtDur(agg[c].t),fmtKm(agg[c].d),c):"";
+    const res=RESK.includes(a.p.kind)||/^(dom|praca)$/i.test(a.p.name.trim());
+    return tile(isHome(a.p)?"Pobyt – dom":res?"Pobyt – "+esc(a.p.name):esc(a.p.name),fmtDur(a.t+a.ext),sub,"stay");}).join("");
+  const ct=c=>c==="stay"?(oT>0?tile("Postoje – inne miejsca",fmtDur(oT),oN+(oN===1?" miejsce":oN%10>=2&&oN%10<=4&&(oN%100<12||oN%100>14)?" miejsca":" miejsc"),"stay"):""):agg[c].t>0?tile(c==="drive"?"Jazda (pojazdem)":c==="walk"?"Pieszo":CLS[c].n,fmtDur(agg[c].t),fmtKm(agg[c].d),c):"";
   const foot=agg.walk.t+agg.run.t;
   const qual=`Punktów: ${nf0.format(P.length)} z ${nf0.format(A.nRaw)} (odrzucone: ${A.dropAcc} słaba dokładność, ${A.dropJump} skoki) · prędkość z odbiornika: ${nf0.format(A.dop*100)}% · z zegarka: ${nf0.format(A.watch*100)}%`;
   let h=gapWarn(k,A)+`<div class="card"><div class="tiles">
@@ -758,7 +759,7 @@ function drawTrack(){
     const g=grp.find(g=>g.n.includes(nr));const first=g.n[0]===nr;
     const m=L.marker([g.lat,g.lon],{icon:L.divIcon({className:"",html:first?`<div class="numg">${g.n.map(x=>`<span class="num">${x}</span>`).join("")}</div>`:"",iconSize:null,iconAnchor:[12,12]}),zIndexOffset:first?400:0}).addTo(LAY);
     m.on("click",()=>selSeg(q,true));m.bindPopup(()=>{const pl=placeAt(s.lat,s.lon);const g=GEO.get(gkey(s.lat,s.lon));
-      return `<b>Pobyt ${nr}</b>${pl?" – "+esc(pl.p.name):""}<br>${fmtTs(s.t0)} – ${q===segs.length-1&&dateKey(s.t0)===dateKey(Date.now())?"nie zaktualizowane (ostatni zapis "+fmtTs(s.t1)+")":fmtTs(s.t1)+" ("+fmtDur((s.t1-s.t0)/1000)+")"}<br>${esc(addrTxt(g))}<br><span style="color:#666">położenie ±${nf0.format(s.spread||0)} m${s.acc!=null?", dokładność GPS "+nf0.format(s.acc)+" m":""}</span>`;});});
+      return `<b>${stayKind(s.lat,s.lon).t==="POBYT"?"Pobyt":"Postój"} ${nr}</b>${pl?" – "+esc(pl.p.name):""}<br>${fmtTs(s.t0)} – ${q===segs.length-1&&dateKey(s.t0)===dateKey(Date.now())?"nie zaktualizowane (ostatni zapis "+fmtTs(s.t1)+")":fmtTs(s.t1)+" ("+fmtDur((s.t1-s.t0)/1000)+")"}<br>${esc(addrTxt(g))}<br><span style="color:#666">położenie ±${nf0.format(s.spread||0)} m${s.acc!=null?", dokładność GPS "+nf0.format(s.acc)+" m":""}</span>`;});});
   /* zdarzenia */
   for(const e of events){L.circleMarker([e.lat,e.lon],{radius:9,color:"#fff",weight:2,fillColor:EVC[e.type],fillOpacity:1,bubblingMouseEvents:false}).addTo(LAY)
     .bindPopup(`<b>${EVN[e.type]}</b><br>${fmtTs(e.t)}<br>${e.type==="corner"?"przyspieszenie boczne":"zmiana prędkości"}: ${nf1.format(e.ms2)} m/s² (${nf2.format(e.g)} g)`+
@@ -782,6 +783,11 @@ function selSeg(q,fromMap){
   if(fromMap){const li=document.querySelector(`.tl>li[data-q="${q}"]`);if(li)li.scrollIntoView({block:"nearest",behavior:"smooth"});}
   else document.getElementById("map").scrollIntoView({block:"nearest",behavior:"smooth"});
 }
+/* dom i praca (służba) to POBYT, pozostałe zatrzymania to POSTÓJ */
+const RESK=["Dom","Praca","Służba"];
+function stayKind(lat,lon){const pl=placeAt(lat,lon);const res=pl&&(RESK.includes(pl.p.kind)||/^(dom|praca)$/i.test(pl.p.name.trim()));
+  return res?{t:"POBYT",c:"#1c3d7a",pl}:{t:"POSTÓJ",c:ccol("stay"),pl};}
+const stayPill=(lat,lon)=>{const k=stayKind(lat,lon);return `<span class="pill" style="background:${k.c}">${k.t}</span>`;};
 /* pobyt trwający przez północ: początek z poprzedniego dnia / koniec w następnym dniu */
 const dayShift=(k,n)=>{const [y,m,d]=k.split("-").map(Number);return dateKey(new Date(y,m-1,d+n,12).getTime());};
 const wdS=t=>new Date(t).toLocaleDateString("pl-PL",{weekday:"short"});
@@ -816,7 +822,7 @@ function buildTimeline(d){
     const col=s.c==="stay"?ccol("stay"):s.gap?ccol("gap"):ccol(s.c);
     let body="";
     if(s.c==="stay"){nr++;
-      body=`<div class="ti"><span class="num">${nr}</span> <span class="pill" style="background:${ccol("stay")}">POSTÓJ</span> ${durTxt}</div><div class="ad" data-a></div>
+      body=`<div class="ti"><span class="num">${nr}</span> ${stayPill(s.lat,s.lon)} ${durTxt}</div><div class="ad" data-a></div>
         <div class="de">${span} · położenie ±${nf0.format(s.spread||0)} m${s.acc!=null?" · GPS "+nf0.format(s.acc)+" m":""}${s.hr?" · tętno śr. "+nf0.format(s.hr):""}</div>`;}
     else if(s.gap){body=`<div class="ti"><span class="pill" style="background:${ccol("gap")};color:#222">BRAK DANYCH</span> ${fmtDur(dur)}</div><div class="de">${fmtTs(s.t0)} – ${fmtTs(s.t1)} · przemieszczenie w linii prostej ${fmtKm(s.d)}</div>`;}
     else{const avg=dur>0?s.d/dur*3.6:null;const e=s.ev||{brake:0,accel:0,corner:0};
@@ -958,7 +964,7 @@ function posAt(P,t){if(!P.length)return null;let lo=0,hi=P.length-1;
   const n=t-a.t<b.t-t?a:b;return Math.abs(n.t-t)<=600000?{lat:n.lat,lon:n.lon,dt:Math.abs(n.t-t)}:null;}
 function dayCalls(k,P,segs){let nr=0;const stayNr=new Map();segs.forEach(s=>{if(s.c==="stay")stayNr.set(s,++nr);});
   return CALLS.filter(c=>dateKey(c.t)===k).map(c=>{const p=posAt(P,c.t);const s=segs.find(s=>c.t>=s.t0&&c.t<=s.t1);
-    return Object.assign({},c,p?{lat:p.lat,lon:p.lon,dt:p.dt}:{lat:null,lon:null},{seg:s?(s.c==="stay"?"Pobyt "+stayNr.get(s):s.gap?"brak danych GPS":CLS[s.c].n):""});});}
+    return Object.assign({},c,p?{lat:p.lat,lon:p.lon,dt:p.dt}:{lat:null,lon:null},{seg:s?(s.c==="stay"?(stayKind(s.lat,s.lon).t==="POBYT"?"Pobyt ":"Postój ")+stayNr.get(s):s.gap?"brak danych GPS":CLS[s.c].n):""});});}
 function callPopup(c){const row=(k,v)=>`<tr><td style="color:#666;padding-right:8px">${k}</td><td><b>${v}</b></td></tr>`;
   const talk=c.d>0;
   return `<div style="font-size:15px;font-weight:700;margin-bottom:4px;color:${CALLC[c.ty]||"#333"}">☎ ${CALLN[c.ty]||"Połączenie"}</div><table style="font-size:13px">`+
@@ -1350,7 +1356,7 @@ async function scanVisits(o,Rm){const out=$("fOut");const ks=Object.keys(INDEX.d
   if(!V.length){out.innerHTML=`<p class="note">W zapisanych dniach nie ma pobytu ani przejazdu w promieniu ${nf0.format(Rm)} m od tego miejsca.</p>`;return;}
   const tot=V.filter(x=>x.stay).reduce((a,x)=>a+(x.t1-x.t0),0);
   out.innerHTML=`<p>Znaleziono: <b>${V.length}</b> · pobyty: ${V.filter(x=>x.stay).length} (łącznie ${fmtDur(tot/1000)}) · przejazdy: ${V.filter(x=>!x.stay).length}</p><div class="scroll"><table>`+
-    V.map((x,i)=>`<tr data-v="${i}" style="cursor:pointer"><td>${dayLabel(x.k)}</td><td>${fmtT(x.t0)}${x.t1-x.t0>=60000?"–"+fmtT(x.t1):""}</td><td>${x.stay?`<span class="pill" style="background:${ccol("stay")}">POSTÓJ</span> `+fmtDur((x.t1-x.t0)/1000):`<span class="pill" style="background:${ccol("drive")}">PRZEJAZD</span>`}</td><td class="note">${nf0.format(x.dm)} m</td></tr>`).join("")+`</table></div><p class="note">Dotknij wiersza, aby otworzyć ten dzień.</p>`;
+    V.map((x,i)=>`<tr data-v="${i}" style="cursor:pointer"><td>${dayLabel(x.k)}</td><td>${fmtT(x.t0)}${x.t1-x.t0>=60000?"–"+fmtT(x.t1):""}</td><td>${x.stay?stayPill(o.lat,o.lon)+" "+fmtDur((x.t1-x.t0)/1000):`<span class="pill" style="background:${ccol("drive")}">PRZEJAZD</span>`}</td><td class="note">${nf0.format(x.dm)} m</td></tr>`).join("")+`</table></div><p class="note">Dotknij wiersza, aby otworzyć ten dzień.</p>`;
   out.querySelectorAll("[data-v]").forEach(tr=>tr.onclick=async()=>{const x=V[+tr.dataset.v];closeDlg();$("sumView").style.display="none";$("view").style.display="";cur=x.k;$("daySel").value=cur;await show(cur);
     if(MAP){MAP.setView([o.lat,o.lon],15);}});}
 
