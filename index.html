@@ -305,7 +305,7 @@ function fromCols(c,src){const n=c?c.t.length:0,o=new Array(n);const nn=x=>isNaN
   for(let i=0;i<n;i++)o[i]={t:c.t[i],lat:c.lat[i],lon:c.lon[i],sp:nn(c.sp[i]),acc:nn(c.acc[i]),hr:nn(c.hr[i]),ele:nn(c.ele[i]),src};return o;}
 function mergePts(a,b){const all=a.concat(b).filter(p=>isFinite(p.t)&&isFinite(p.lat)&&isFinite(p.lon)&&Math.abs(p.lat)<=90&&Math.abs(p.lon)<=180).sort((x,y)=>x.t-y.t);
   const u=[];for(const p of all){const L=u[u.length-1];if(L&&p.t-L.t<300){if(p.acc!=null&&(L.acc==null||p.acc<L.acc))u[u.length-1]=p;continue;}u.push(p);}return u;}
-const APPVER="7.11.2026 06:40";
+const APPVER="7.11.2026 07:00";
 let CALLS=[];
 async function initStore(){
   const st=$("store");
@@ -314,7 +314,15 @@ async function initStore(){
     st.textContent="Dane w telefonie"+(per?" (trwałe)":"")+" · wersja "+APPVER;}
   catch(e){IDB=null;st.textContent="Brak zapisu – dane do zamknięcia strony";}
   refreshDays();
+  recalcAll();
 }
+/* po zmianie zasad analizy – jednorazowe przeliczenie podsumowań wszystkich zapisanych dni (kalendarz, lista dni) */
+const ANAVER=3;
+async function recalcAll(force){if(!IDB)return;try{if(!force&&(await kvGet("anaver"))===ANAVER)return;}catch(e){return;}
+  const ks=Object.keys(INDEX.days).sort();let n=0;
+  for(const k of ks){const d=await loadDay(k);if(d){INDEX.days[k]=summary(d);n++;}if(n%5===0){msg(`Przeliczanie dni według nowych zasad: ${n}/${ks.length}…`);await new Promise(r=>setTimeout(r,0));}}
+  await kvSet("index",{days:INDEX.days});await kvSet("anaver",ANAVER);msg(`Przeliczono ${n} dni według nowych zasad.`);
+  const sel=$("daySel");if(sel){const v=sel.value;[...sel.options].forEach(o=>{const s=INDEX.days[o.value];if(s)o.textContent=dayLabel(o.value)+" · "+fmtKm(s.dist||0);});sel.value=v;}}
 async function loadDay(k){if(CACHE.has(k))return CACHE.get(k);if(!IDB)return null;const d=await kvGet("d-"+k);if(d)CACHE.set(k,d);return d||null;}
 async function saveDay(d){CACHE.set(d.date,d);ANA.delete(d.date);INDEX.days[d.date]=summary(d);if(IDB){await kvSet("d-"+d.date,d);await kvSet("index",{days:INDEX.days});}}
 async function savePlaces(){if(IDB)await kvSet("places",PLACES);ANA.clear();}
